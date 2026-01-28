@@ -3,6 +3,7 @@ import json
 import time
 import asyncio
 import logging
+import random
 from typing import List, Dict, Any, Optional, Union
 from fastapi import HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -67,8 +68,22 @@ class RouterEngine:
                         if "T3" in content: return "t3"
             except Exception as e:
                 logger.error(f"Router Model failed: {e}. Falling back to heuristic.")
+                # If Router enabled but failed, fall through to heuristic below
+        else:
+            # If Router disabled, use Random Level Selection as requested
+            # Pick from levels that have models configured
+            available_levels = []
+            if config.t1_models: available_levels.append("t1")
+            if config.t2_models: available_levels.append("t2")
+            if config.t3_models: available_levels.append("t3")
+            
+            if available_levels:
+                chosen = random.choice(available_levels)
+                logger.info(f"Router disabled. Randomly selected level: {chosen}")
+                return chosen
+            return "t1" # Default fallback if no models configured
 
-        # 2. Fallback Heuristic
+        # 2. Fallback Heuristic (Only used if Router enabled but failed)
         full_text = " ".join([m.get("content", "") or "" for m in messages])
         
         if len(full_text) > 2000:

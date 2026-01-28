@@ -546,7 +546,10 @@ export function ConfigPage() {
               checked={config.router_config.enabled} 
               onCheckedChange={(checked) => setConfig({...config, router_config: {...config.router_config, enabled: checked}})}
             />
-            <Label htmlFor="router-enabled">启用 LLM 意图分析</Label>
+            <Label htmlFor="router-enabled">
+              启用 LLM 意图分析
+              {!config.router_config.enabled && <span className="text-xs text-muted-foreground ml-2">(已关闭：将随机分发到 T1/T2/T3)</span>}
+            </Label>
           </div>
           
           {config.router_config.enabled && (
