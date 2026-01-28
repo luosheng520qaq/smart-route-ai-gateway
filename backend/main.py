@@ -157,7 +157,8 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     # For chart "Response Time Trend", maybe last 50 requests?
     q_trend = select(RequestLog.timestamp, RequestLog.duration_ms).order_by(desc(RequestLog.timestamp)).limit(50)
     res_trend = await db.execute(q_trend)
-    trend_data = [{"time": row[0].strftime("%H:%M:%S"), "duration": row[1]} for row in res_trend.all()][::-1]
+    # Return ISO string for frontend to handle timezone
+    trend_data = [{"time": row[0].isoformat(), "duration": row[1]} for row in res_trend.all()][::-1]
 
     return {
         "total_requests": total_requests,

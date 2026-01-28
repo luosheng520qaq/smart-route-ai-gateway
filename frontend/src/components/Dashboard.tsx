@@ -105,7 +105,11 @@ export function Dashboard() {
           </CardHeader>
           <CardContent className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={stats?.response_trend}>
+              <LineChart data={stats?.response_trend.map(item => ({
+                  ...item,
+                  // Parse UTC ISO string and format to local time
+                  time: new Date(item.time.endsWith('Z') ? item.time : item.time + 'Z').toLocaleTimeString()
+              }))}>
                 <XAxis dataKey="time" hide />
                 <YAxis />
                 <Tooltip />
@@ -139,7 +143,7 @@ export function Dashboard() {
                 <Sheet key={log.id}>
                   <SheetTrigger asChild>
                     <TableRow className="cursor-pointer hover:bg-muted/50">
-                      <TableCell>{new Date(log.timestamp).toLocaleTimeString()}</TableCell>
+                      <TableCell>{new Date(log.timestamp.endsWith('Z') ? log.timestamp : log.timestamp + 'Z').toLocaleTimeString()}</TableCell>
                       <TableCell>
                         <Badge variant="outline">{log.level}</Badge>
                       </TableCell>
@@ -161,7 +165,7 @@ export function Dashboard() {
                     <SheetHeader>
                       <SheetTitle>请求详情 #{log.id}</SheetTitle>
                       <SheetDescription>
-                        {new Date(log.timestamp).toLocaleString()} | {log.model}
+                        {new Date(log.timestamp.endsWith('Z') ? log.timestamp : log.timestamp + 'Z').toLocaleString()} | {log.model}
                       </SheetDescription>
                     </SheetHeader>
                     <div className="mt-6 space-y-6">
