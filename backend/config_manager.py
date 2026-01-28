@@ -22,13 +22,20 @@ class RetryConfig(BaseModel):
     status_codes: List[int] = [429, 500, 502, 503, 504]
     error_keywords: List[str] = ["rate limit", "quota exceeded", "overloaded", "timeout", "try again"]
 
+class ProviderConfig(BaseModel):
+    base_url: str
+    api_key: str
+
 class AppConfig(BaseModel):
     t1_models: List[str] = ["gpt-3.5-turbo", "gpt-4o-mini"]
     t2_models: List[str] = ["gpt-4", "gpt-4-turbo"]
     t3_models: List[str] = ["gpt-4-32k", "claude-3-opus"]
     timeouts: Dict[str, int] = {"t1": 5000, "t2": 15000, "t3": 30000}
+    
+    # Default upstream (Legacy or Default Provider)
     upstream_base_url: str = "https://api.openai.com/v1"
     upstream_api_key: str = ""
+    
     gateway_api_key: str = "" # Key required to access this gateway
     
     # New configurations
@@ -41,6 +48,13 @@ class AppConfig(BaseModel):
     global_params: Dict[str, Any] = {} 
     # model_params: key is model_name, value is dict of params (e.g. {"gpt-4": {"top_p": 0.5}})
     model_params: Dict[str, Dict[str, Any]] = {}
+    
+    # Multi-Provider Configuration
+    # providers: key is provider_id (e.g. "azure"), value is config
+    providers: Dict[str, ProviderConfig] = {}
+    # model_provider_map: key is model_name, value is provider_id
+    # e.g. {"gpt-4": "azure", "claude-3": "anthropic"}
+    model_provider_map: Dict[str, str] = {}
 
 class ConfigManager:
     _instance = None

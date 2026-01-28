@@ -22,6 +22,11 @@ export interface RetryConfig {
   error_keywords: string[];
 }
 
+export interface ProviderConfig {
+  base_url: string;
+  api_key: string;
+}
+
 export interface AppConfig {
   t1_models: string[];
   t2_models: string[];
@@ -34,6 +39,8 @@ export interface AppConfig {
   retry_config: RetryConfig;
   global_params: Record<string, any>;
   model_params: Record<string, Record<string, any>>;
+  providers: Record<string, ProviderConfig>;
+  model_provider_map: Record<string, string>;
 }
 
 export interface RequestLog {

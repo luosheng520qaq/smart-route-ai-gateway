@@ -210,6 +210,65 @@ export function ConfigPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle>多供应商配置 (Multi-Provider)</CardTitle>
+          <CardDescription>配置额外的模型供应商。如果在此处定义了 Provider，可以在模型 ID 中使用 `provider_id/model_name` 来指定。</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+            <div className="space-y-2">
+            <Label>供应商列表 (Providers JSON)</Label>
+            <Textarea 
+              className="font-mono text-sm h-48"
+              value={JSON.stringify(config.providers || {}, null, 2)} 
+              onChange={(e) => {
+                try {
+                   const val = JSON.parse(e.target.value);
+                   setConfig({...config, providers: val});
+                } catch (e) {
+                }
+              }} 
+              placeholder='{
+  "azure": { 
+    "base_url": "https://resource.openai.azure.com/...", 
+    "api_key": "..." 
+  },
+  "deepseek": { 
+    "base_url": "https://api.deepseek.com", 
+    "api_key": "..." 
+  }
+}'
+            />
+             <p className="text-xs text-muted-foreground">
+               JSON 格式。Key 为 Provider ID (如 "azure")，Value 包含 base_url 和 api_key。<br/>
+               配置后，可在 T1/T2/T3 列表中使用 <code>azure/gpt-4</code> 的形式来指定使用该供应商。
+             </p>
+          </div>
+
+           <div className="space-y-2">
+            <Label>模型映射 (Model Map JSON)</Label>
+            <Textarea 
+              className="font-mono text-sm h-24"
+              value={JSON.stringify(config.model_provider_map || {}, null, 2)} 
+              onChange={(e) => {
+                try {
+                   const val = JSON.parse(e.target.value);
+                   setConfig({...config, model_provider_map: val});
+                } catch (e) {
+                }
+              }} 
+              placeholder='{
+  "gpt-4": "azure",
+  "claude-3-opus": "anthropic"
+}'
+            />
+             <p className="text-xs text-muted-foreground">
+               可选。将特定模型 ID 自动映射到供应商 ID。如果使用了 `provider/model` 格式，则忽略此映射。
+             </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>默认参数配置 (Default Parameters)</CardTitle>
           <CardDescription>配置全局和特定模型的默认参数 (如 temperature, top_p)。这有助于适配对参数有特殊要求的上游模型 (如 Kimi)。</CardDescription>
         </CardHeader>

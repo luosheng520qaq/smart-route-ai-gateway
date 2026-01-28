@@ -93,9 +93,23 @@
         }
         ```
 
-### 3. 上游配置
-*   **Upstream Base URL**: 你的 LLM 供应商地址（如 OneAPI, NewAPI 或官方 API）。
-*   **Upstream API Key**: 统一的访问密钥。
+### 3. 多供应商 (Multi-Provider) (New)
+支持同时接入多个上游供应商（如 OpenAI, Azure, DeepSeek），并实现负载均衡或故障转移。
+
+*   **供应商列表 (Providers)**: 定义多个供应商及其 URL/Key。
+    ```json
+    {
+      "azure": { "base_url": "...", "api_key": "..." },
+      "deepseek": { "base_url": "...", "api_key": "..." }
+    }
+    ```
+*   **指定使用**: 在 T1/T2/T3 模型列表中，使用 `provider_id/model_name` 格式（如 `azure/gpt-4`）。
+*   **自动映射 (Model Map)**: 将特定模型 ID 自动路由到指定供应商（如 `"gpt-4": "azure"`）。
+*   **故障转移**: 配置 `t2_models: ["azure/gpt-4", "deepseek/deepseek-chat"]` 可实现当 Azure 失败时自动尝试 DeepSeek。
+
+### 4. 上游配置 (默认)
+*   **Upstream Base URL**: 默认的 LLM 供应商地址（用于未指定 Provider 的模型）。
+*   **Upstream API Key**: 默认访问密钥。
 
 ## 🛠️ 技术栈
 
