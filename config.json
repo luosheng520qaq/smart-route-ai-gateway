@@ -1,0 +1,45 @@
+{
+  "t1_models": [
+    "gpt-3.5-turbo",
+    "gpt-4o-mini"
+  ],
+  "t2_models": [
+    "gpt-4",
+    "gpt-4-turbo"
+  ],
+  "t3_models": [
+    "gpt-4-32k",
+    "claude-3-opus"
+  ],
+  "timeouts": {
+    "t1": 5000,
+    "t2": 15000,
+    "t3": 30000
+  },
+  "upstream_base_url": "https://api.openai.com/v1",
+  "upstream_api_key": "",
+  "router_config": {
+    "enabled": false,
+    "model": "gpt-3.5-turbo",
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "",
+    "prompt_template": "You are an intent classifier. Analyze the user's request history and classify the complexity into one of three levels:\nT1: Simple, factual, chit-chat, or short tasks.\nT2: Moderate complexity, code generation, creative writing, or analysis.\nT3: Complex reasoning, deep coding, architectural design, or math problems.\n\nUser History:\n{history}\n\nRespond ONLY with \"T1\", \"T2\", or \"T3\". Do not add any explanation."
+  },
+  "retry_config": {
+    "status_codes": [
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "error_keywords": [
+      "rate limit",
+      "quota exceeded",
+      "overloaded",
+      "timeout",
+      "try again"
+    ]
+  },
+  "log_retention_days": 7
+}
