@@ -8,15 +8,35 @@ class RouterModelConfig(BaseModel):
     model: str = "gpt-3.5-turbo"
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
-    prompt_template: str = """You are an intent classifier. Analyze the user's request history and classify the complexity into one of three levels:
-T1: Simple, factual, chit-chat, or short tasks.
-T2: Moderate complexity, code generation, creative writing, or analysis.
-T3: Complex reasoning, deep coding, architectural design, or math problems.
+    prompt_template: str = """You are an intent router for an advanced AI Agent system.
+Analyze the user's request history and classify the complexity into one of three levels based on **Reasoning Depth** and **Tool/System Interaction**.
+
+**Guidelines:**
+- **Short does NOT mean simple.** A request like "Restart the server" is short but requires high-privilege tool access (T2/T3).
+- **Tool usage rules out T1.** If the user implies ANY action beyond pure conversation (e.g., searching, clicking, file manipulation), it must be T2 or T3.
+
+**Classification Levels:**
+
+T1 (Passive / Text-Only):
+- Pure conversation, greetings, chit-chat.
+- Factual questions answerable by internal knowledge (e.g., "What is the capital of France?").
+- **Constraint:** NO external tools, NO system operations, NO side effects.
+
+T2 (Active / Single-Task):
+- Requests requiring **Standard Tool Usage** (e.g., Web Search, Calculator, Weather).
+- Code generation (Functions, scripts).
+- Simple system operations (e.g., "Open the browser", "Create a folder").
+- Analysis of user-provided files/images.
+
+T3 (Agentic / Complex Flow):
+- **Complex Agent Workflows:** Multi-step executions (e.g., "Go to GitHub, find the repo, clone it, and fix the bug").
+- **Deep System Control:** Automating browser interaction (Selenium/Playwright), OS-level modifications.
+- High-stakes reasoning, architectural design, or handling ambiguous instructions that require planning.
 
 User History:
 {history}
 
-Respond ONLY with "T1", "T2", or "T3". Do not add any explanation."""
+Respond ONLY with the label: "T1", "T2", or "T3"."""
 
 class RetryConfig(BaseModel):
     status_codes: List[int] = [429, 500, 502, 503, 504]
