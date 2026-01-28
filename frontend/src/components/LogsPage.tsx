@@ -92,7 +92,8 @@ export function LogsPage() {
                   <SheetTrigger asChild>
                     <TableRow className="cursor-pointer hover:bg-muted/50">
                       <TableCell className="font-mono text-xs text-muted-foreground">
-                        {new Date(log.timestamp).toLocaleString()}
+                        {/* Append 'Z' to indicate UTC time if missing, to ensure local conversion */}
+                        {new Date(log.timestamp.endsWith('Z') ? log.timestamp : log.timestamp + 'Z').toLocaleString()}
                       </TableCell>
                       <TableCell>
                         <Badge variant={log.level === 't3' ? 'destructive' : log.level === 't2' ? 'default' : 'secondary'}>
@@ -126,7 +127,7 @@ export function LogsPage() {
                     <SheetHeader>
                       <SheetTitle>请求详情 #{log.id}</SheetTitle>
                       <SheetDescription>
-                         {new Date(log.timestamp).toLocaleString()}
+                         {new Date(log.timestamp.endsWith('Z') ? log.timestamp : log.timestamp + 'Z').toLocaleString()}
                       </SheetDescription>
                     </SheetHeader>
                     <div className="mt-6 space-y-6">
