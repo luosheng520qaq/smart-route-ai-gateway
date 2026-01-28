@@ -213,56 +213,170 @@ export function ConfigPage() {
           <CardTitle>多供应商配置 (Multi-Provider)</CardTitle>
           <CardDescription>配置额外的模型供应商。如果在此处定义了 Provider，可以在模型 ID 中使用 `provider_id/model_name` 来指定。</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-            <div className="space-y-2">
-            <Label>供应商列表 (Providers JSON)</Label>
-            <Textarea 
-              className="font-mono text-sm h-48"
-              value={JSON.stringify(config.providers || {}, null, 2)} 
-              onChange={(e) => {
-                try {
-                   const val = JSON.parse(e.target.value);
-                   setConfig({...config, providers: val});
-                } catch (e) {
-                }
-              }} 
-              placeholder='{
-  "azure": { 
-    "base_url": "https://resource.openai.azure.com/...", 
-    "api_key": "..." 
-  },
-  "deepseek": { 
-    "base_url": "https://api.deepseek.com", 
-    "api_key": "..." 
-  }
-}'
-            />
-             <p className="text-xs text-muted-foreground">
-               JSON 格式。Key 为 Provider ID (如 "azure")，Value 包含 base_url 和 api_key。<br/>
-               配置后，可在 T1/T2/T3 列表中使用 <code>azure/gpt-4</code> 的形式来指定使用该供应商。
-             </p>
+        <CardContent className="space-y-6">
+          {/* Provider List Editor */}
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <Label>供应商列表 (Providers)</Label>
+              <Button variant="outline" size="sm" onClick={() => {
+                if (!config) return;
+                const newId = `provider_${Object.keys(config.providers || {}).length + 1}`;
+                setConfig({
+                  ...config,
+                  providers: {
+                    ...(config.providers || {}),
+                    [newId]: { base_url: "", api_key: "" }
+                  }
+                });
+              }}>
+                <Plus className="h-4 w-4 mr-1" /> 添加供应商
+              </Button>
+            </div>
+            
+            <div className="space-y-4">
+              {Object.entries(config.providers || {}).map(([id, provider]) => (
+                <div key={id} className="border p-4 rounded-lg space-y-3 relative">
+                  <div className="absolute top-2 right-2">
+                    <Button variant="ghost" size="icon" onClick={() => {
+                       if (!config) return;
+                       const newProviders = { ...config.providers };
+                       delete newProviders[id];
+                       setConfig({ ...config, providers: newProviders });
+                    }}>
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-4">
+                     <div className="space-y-2">
+                      <Label>Provider ID</Label>
+                      <Input 
+                        value={id}
+                        onChange={(e) => {
+                          if (!config) return;
+                          const newId = e.target.value;
+                          if (newId === id || !newId) return;
+                          
+                          const newProviders = { ...config.providers };
+                          newProviders[newId] = newProviders[id];
+                          delete newProviders[id];
+                          setConfig({ ...config, providers: newProviders });
+                        }}
+                        placeholder="e.g. azure"
+                      />
+                    </div>
+                    <div className="space-y-2 col-span-2">
+                       <Label>Base URL</Label>
+                       <Input 
+                         value={provider.base_url}
+                         onChange={(e) => {
+                           if (!config) return;
+                           setConfig({
+                             ...config,
+                             providers: {
+                               ...config.providers,
+                               [id]: { ...provider, base_url: e.target.value }
+                             }
+                           });
+                         }}
+                         placeholder="https://..."
+                       />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>API Key</Label>
+                    <Input 
+                      type="password"
+                      value={provider.api_key}
+                      onChange={(e) => {
+                        if (!config) return;
+                         setConfig({
+                             ...config,
+                             providers: {
+                               ...config.providers,
+                               [id]: { ...provider, api_key: e.target.value }
+                             }
+                           });
+                      }}
+                      placeholder="sk-..."
+                    />
+                  </div>
+                </div>
+              ))}
+              {Object.keys(config.providers || {}).length === 0 && (
+                <div className="text-center text-sm text-muted-foreground py-4">
+                  暂无额外供应商，点击上方按钮添加。
+                </div>
+              )}
+            </div>
           </div>
 
-           <div className="space-y-2">
-            <Label>模型映射 (Model Map JSON)</Label>
-            <Textarea 
-              className="font-mono text-sm h-24"
-              value={JSON.stringify(config.model_provider_map || {}, null, 2)} 
-              onChange={(e) => {
-                try {
-                   const val = JSON.parse(e.target.value);
-                   setConfig({...config, model_provider_map: val});
-                } catch (e) {
-                }
-              }} 
-              placeholder='{
-  "gpt-4": "azure",
-  "claude-3-opus": "anthropic"
-}'
-            />
-             <p className="text-xs text-muted-foreground">
-               可选。将特定模型 ID 自动映射到供应商 ID。如果使用了 `provider/model` 格式，则忽略此映射。
-             </p>
+           {/* Model Map Editor */}
+           <div className="space-y-4 border-t pt-4">
+            <div className="flex justify-between items-center">
+              <Label>模型映射 (Model Mapping)</Label>
+               <Button variant="outline" size="sm" onClick={() => {
+                if (!config) return;
+                setConfig({
+                  ...config,
+                  model_provider_map: {
+                    ...(config.model_provider_map || {}),
+                    "": ""
+                  }
+                });
+              }}>
+                <Plus className="h-4 w-4 mr-1" /> 添加映射
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">将特定模型 ID 自动路由到指定供应商（无需在 T1/T2/T3 列表加前缀）。</p>
+            
+            <div className="space-y-2">
+              {Object.entries(config.model_provider_map || {}).map(([model, providerId], index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Input 
+                    className="flex-1"
+                    value={model}
+                    onChange={(e) => {
+                       if (!config) return;
+                       const newMap = { ...config.model_provider_map };
+                       const newVal = newMap[model];
+                       delete newMap[model];
+                       newMap[e.target.value] = newVal;
+                       setConfig({ ...config, model_provider_map: newMap });
+                    }}
+                    placeholder="模型 ID (如 gpt-4)"
+                  />
+                  <span className="text-muted-foreground">→</span>
+                  <select 
+                    className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    value={providerId}
+                    onChange={(e) => {
+                       if (!config) return;
+                       setConfig({
+                         ...config,
+                         model_provider_map: {
+                           ...config.model_provider_map,
+                           [model]: e.target.value
+                         }
+                       });
+                    }}
+                  >
+                    <option value="" disabled>选择供应商</option>
+                    {Object.keys(config.providers || {}).map(pid => (
+                      <option key={pid} value={pid}>{pid}</option>
+                    ))}
+                  </select>
+                   <Button variant="ghost" size="icon" onClick={() => {
+                       if (!config) return;
+                       const newMap = { ...config.model_provider_map };
+                       delete newMap[model];
+                       setConfig({ ...config, model_provider_map: newMap });
+                    }}>
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                    </Button>
+                </div>
+              ))}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -272,44 +386,147 @@ export function ConfigPage() {
           <CardTitle>默认参数配置 (Default Parameters)</CardTitle>
           <CardDescription>配置全局和特定模型的默认参数 (如 temperature, top_p)。这有助于适配对参数有特殊要求的上游模型 (如 Kimi)。</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-           <div className="space-y-2">
-            <Label>全局参数 (Global Params JSON)</Label>
-            <Textarea 
-              className="font-mono text-sm h-24"
-              value={JSON.stringify(config.global_params || {}, null, 2)} 
-              onChange={(e) => {
-                try {
-                  const val = JSON.parse(e.target.value);
-                  setConfig({...config, global_params: val});
-                } catch (e) {
-                   // Allow editing invalid JSON temporarily or handle error state if desired
-                   // For simplicity in this text-based tool, we might not have complex validation UI
-                }
-              }} 
-              placeholder='{"temperature": 0.7}'
-            />
-            <p className="text-xs text-muted-foreground">JSON 格式。这些参数将作为默认值应用于所有请求，除非请求中已指定。</p>
+        <CardContent className="space-y-6">
+           {/* Global Params */}
+           <div className="space-y-4">
+            <div className="flex justify-between items-center">
+               <Label>全局参数 (Global Params)</Label>
+               <Button variant="outline" size="sm" onClick={() => {
+                 if (!config) return;
+                 setConfig({
+                   ...config,
+                   global_params: { ...(config.global_params || {}), "new_param": 0.7 }
+                 });
+               }}>
+                 <Plus className="h-4 w-4 mr-1" /> 添加参数
+               </Button>
+            </div>
+            
+            <div className="space-y-2">
+               {Object.entries(config.global_params || {}).map(([key, value], index) => (
+                 <div key={index} className="flex items-center gap-2">
+                    <Input 
+                      className="w-1/3"
+                      value={key}
+                      onChange={(e) => {
+                         if (!config) return;
+                         const newParams = { ...config.global_params };
+                         const val = newParams[key];
+                         delete newParams[key];
+                         newParams[e.target.value] = val;
+                         setConfig({ ...config, global_params: newParams });
+                      }}
+                      placeholder="参数名 (如 temperature)"
+                    />
+                    <Input 
+                      className="flex-1"
+                      value={typeof value === 'object' ? JSON.stringify(value) : value}
+                      onChange={(e) => {
+                         if (!config) return;
+                         let val: any = e.target.value;
+                         // Try to parse number or boolean
+                         if (!isNaN(Number(val)) && val.trim() !== '') val = Number(val);
+                         if (val === 'true') val = true;
+                         if (val === 'false') val = false;
+                         
+                         setConfig({
+                           ...config,
+                           global_params: { ...config.global_params, [key]: val }
+                         });
+                      }}
+                      placeholder="值"
+                    />
+                     <Button variant="ghost" size="icon" onClick={() => {
+                         if (!config) return;
+                         const newParams = { ...config.global_params };
+                         delete newParams[key];
+                         setConfig({ ...config, global_params: newParams });
+                      }}>
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                 </div>
+               ))}
+               {Object.keys(config.global_params || {}).length === 0 && (
+                 <p className="text-sm text-muted-foreground">暂无全局参数。</p>
+               )}
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>特定模型参数 (Model Specific Params JSON)</Label>
-             <Textarea 
-              className="font-mono text-sm h-48"
-              value={JSON.stringify(config.model_params || {}, null, 2)} 
-              onChange={(e) => {
-                try {
-                   const val = JSON.parse(e.target.value);
-                   setConfig({...config, model_params: val});
-                } catch (e) {
-                }
-              }} 
-              placeholder='{
-  "gpt-4": { "top_p": 0.5 },
-  "kimik2.5": { "top_p": 0.95 }
-}'
-            />
-             <p className="text-xs text-muted-foreground">JSON 格式。Key 为模型 ID，Value 为参数对象。优先级高于全局参数。</p>
+          {/* Model Specific Params */}
+          <div className="space-y-4 border-t pt-4">
+             <div className="flex justify-between items-center">
+               <Label>特定模型参数 (Model Specific Params)</Label>
+                <Button variant="outline" size="sm" onClick={() => {
+                 if (!config) return;
+                 setConfig({
+                   ...config,
+                   model_params: {
+                     ...(config.model_params || {}),
+                     "model_id": { "param": "value" }
+                   }
+                 });
+               }}>
+                 <Plus className="h-4 w-4 mr-1" /> 添加模型配置
+               </Button>
+            </div>
+            
+             <div className="space-y-4">
+               {Object.entries(config.model_params || {}).map(([modelId, params]) => (
+                 <div key={modelId} className="border p-4 rounded-lg space-y-3 relative">
+                    <div className="absolute top-2 right-2">
+                      <Button variant="ghost" size="icon" onClick={() => {
+                         if (!config) return;
+                         const newModelParams = { ...config.model_params };
+                         delete newModelParams[modelId];
+                         setConfig({ ...config, model_params: newModelParams });
+                      }}>
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>模型 ID</Label>
+                      <Input 
+                        value={modelId}
+                        onChange={(e) => {
+                           if (!config) return;
+                           const newId = e.target.value;
+                           if (newId === modelId || !newId) return;
+                           
+                           const newModelParams = { ...config.model_params };
+                           newModelParams[newId] = newModelParams[modelId];
+                           delete newModelParams[modelId];
+                           setConfig({ ...config, model_params: newModelParams });
+                        }}
+                        placeholder="e.g. kimik2.5"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label>参数列表 (JSON)</Label>
+                      <Textarea 
+                        className="font-mono text-xs h-20"
+                        value={JSON.stringify(params, null, 2)}
+                        onChange={(e) => {
+                           try {
+                             const val = JSON.parse(e.target.value);
+                             setConfig({
+                               ...config,
+                               model_params: { ...config.model_params, [modelId]: val }
+                             });
+                           } catch (e) {}
+                        }}
+                      />
+                      <p className="text-xs text-muted-foreground">此处保持 JSON 编辑以支持复杂结构。</p>
+                    </div>
+                 </div>
+               ))}
+                {Object.keys(config.model_params || {}).length === 0 && (
+                 <div className="text-center text-sm text-muted-foreground py-4">
+                   暂无特定模型配置。
+                 </div>
+               )}
+             </div>
           </div>
         </CardContent>
       </Card>
