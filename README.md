@@ -8,7 +8,7 @@
 一个现代化的、兼容 OpenAI 协议的智能路由网关。它能根据用户意图复杂度自动分流请求，支持多模型故障转移（Failover），并提供美观的 Web 管理面板。
 
 ![Dashboard Preview](docs/dashboard-preview.png)
-*(请自行添加截图)*
+
 
 ## ✨ 核心特性
 
