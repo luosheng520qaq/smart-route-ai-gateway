@@ -423,6 +423,13 @@ export function ConfigPage() {
                       value={typeof value === 'object' ? JSON.stringify(value) : value}
                       onChange={(e) => {
                          if (!config) return;
+                         setConfig({
+                           ...config,
+                           global_params: { ...config.global_params, [key]: e.target.value }
+                         });
+                      }}
+                      onBlur={(e) => {
+                         if (!config) return;
                          let val: any = e.target.value;
                          // Try to parse number or boolean
                          if (!isNaN(Number(val)) && val.trim() !== '') val = Number(val);
@@ -504,17 +511,14 @@ export function ConfigPage() {
                     
                     <div className="space-y-2">
                       <Label>参数列表 (JSON)</Label>
-                      <Textarea 
-                        className="font-mono text-xs h-20"
-                        value={JSON.stringify(params, null, 2)}
-                        onChange={(e) => {
-                           try {
-                             const val = JSON.parse(e.target.value);
-                             setConfig({
-                               ...config,
-                               model_params: { ...config.model_params, [modelId]: val }
-                             });
-                           } catch (e) {}
+                      <JsonEditor 
+                        value={params}
+                        onChange={(val) => {
+                           if (!config) return;
+                           setConfig({
+                             ...config,
+                             model_params: { ...config.model_params, [modelId]: val }
+                           });
                         }}
                       />
                       <p className="text-xs text-muted-foreground">此处保持 JSON 编辑以支持复杂结构。</p>
@@ -714,5 +718,29 @@ export function ConfigPage() {
         ))}
       </Tabs>
     </div>
+  );
+}
+
+function JsonEditor({ value, onChange }: { value: any, onChange: (val: any) => void }) {
+  const [text, setText] = useState(JSON.stringify(value, null, 2));
+
+  useEffect(() => {
+    setText(JSON.stringify(value, null, 2));
+  }, [value]);
+
+  return (
+    <Textarea 
+      className="font-mono text-xs h-20"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+         try {
+           const val = JSON.parse(text);
+           onChange(val);
+         } catch (e) {
+           toast.error("JSON 格式错误");
+         }
+      }}
+    />
   );
 }
