@@ -362,14 +362,53 @@ class RouterEngine:
         # This function is now run in background
         async with AsyncSessionLocal() as session:
             try:
+                # Optimize Logging: Extract only necessary info
+                
+                # 1. Request: Only user messages
+                clean_req = "Check user_prompt_preview"
+                try:
+                    req_obj = json.loads(req_json)
+                    # Extract last user message or system instruction? User said "record user input".
+                    # Let's extract all messages but keep them minimal (content only)
+                    if "messages" in req_obj:
+                         # Filter only user messages to save space, or just keep the structure simple
+                         clean_req = json.dumps([
+                             {"role": m.get("role"), "content": m.get("content")} 
+                             for m in req_obj["messages"] 
+                             if m.get("role") == "user"
+                         ], ensure_ascii=False)
+                except:
+                    clean_req = req_json # Fallback
+
+                # 2. Response: Only assistant content or tool calls
+                clean_res = "Empty"
+                try:
+                    res_obj = json.loads(res_json)
+                    if "choices" in res_obj and len(res_obj["choices"]) > 0:
+                        message = res_obj["choices"][0].get("message", {})
+                        content = message.get("content")
+                        tool_calls = message.get("tool_calls")
+                        
+                        log_data = {}
+                        if content:
+                            log_data["content"] = content
+                        if tool_calls:
+                            log_data["tool_calls"] = tool_calls
+                            
+                        clean_res = json.dumps(log_data, ensure_ascii=False)
+                    elif "error" in res_obj:
+                        clean_res = json.dumps(res_obj["error"], ensure_ascii=False)
+                except:
+                    clean_res = res_json # Fallback
+
                 log_entry = RequestLog(
                     level=level,
                     model=model,
                     duration_ms=duration,
                     status=status,
                     user_prompt_preview=prompt[:200] if prompt else "",
-                    full_request=req_json,
-                    full_response=res_json
+                    full_request=clean_req,
+                    full_response=clean_res
                 )
                 session.add(log_entry)
                 await session.commit()
