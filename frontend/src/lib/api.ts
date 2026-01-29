@@ -55,6 +55,15 @@ export interface RequestLog {
   user_prompt_preview: string;
   full_request: string;
   full_response: string;
+  trace?: string; // JSON string of TraceEvent[]
+}
+
+export interface TraceEvent {
+  stage: string;
+  timestamp: number;
+  duration_ms: number;
+  status: string;
+  retry_count: number;
 }
 
 export interface Stats {

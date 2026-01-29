@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { CheckCircle2, XCircle, RefreshCw, FileText } from 'lucide-react';
-import { fetchLogs, RequestLog } from '@/lib/api';
+import { fetchLogs, RequestLog, TraceEvent } from '@/lib/api';
 
 export function LogsPage() {
   const [logs, setLogs] = useState<RequestLog[]>([]);
@@ -145,6 +145,47 @@ export function LogsPage() {
                               <span className="text-muted-foreground">状态:</span> {log.status}
                           </div>
                        </div>
+
+                      {/* Trace Timeline */}
+                      {log.trace && (
+                        <div>
+                          <h4 className="text-sm font-medium mb-2">调用链路追踪 (Trace)</h4>
+                          <div className="border rounded-md p-4 space-y-4">
+                            {(() => {
+                              try {
+                                const trace: TraceEvent[] = JSON.parse(log.trace);
+                                return trace.map((event, i) => (
+                                  <div key={i} className="flex items-start gap-3 text-sm relative">
+                                    {i < trace.length - 1 && (
+                                      <div className="absolute left-[9px] top-6 bottom-[-16px] w-[1px] bg-border" />
+                                    )}
+                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] z-10 
+                                      ${event.status === 'success' ? 'bg-green-100 text-green-700' : event.status === 'fail' ? 'bg-red-100 text-red-700' : 'bg-slate-100'}`}>
+                                      {i + 1}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className="flex justify-between items-center">
+                                        <span className="font-medium">{event.stage}</span>
+                                        <span className="text-xs text-muted-foreground font-mono">
+                                          +{event.duration_ms.toFixed(0)}ms
+                                        </span>
+                                      </div>
+                                      <div className="text-xs text-muted-foreground flex gap-2">
+                                        <span>{new Date(event.timestamp * 1000).toLocaleTimeString()}</span>
+                                        {event.retry_count > 0 && (
+                                          <span className="text-orange-500">Retry #{event.retry_count}</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ));
+                              } catch (e) {
+                                return <div className="text-red-500 text-xs">无法解析 Trace 数据</div>;
+                              }
+                            })()}
+                          </div>
+                        </div>
+                      )}
 
                       <div>
                         <h4 className="text-sm font-medium mb-2">请求体 (Request JSON)</h4>

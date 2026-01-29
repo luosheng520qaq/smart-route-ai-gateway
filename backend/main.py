@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks, Security
+from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks, Security, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +12,7 @@ import os
 from config_manager import config_manager, AppConfig
 from database import init_db, get_db, RequestLog, AsyncSession, prune_logs
 from router_engine import router_engine, ChatCompletionRequest
+from logger import trace_logger
 
 # Security
 security = HTTPBearer(auto_error=False)
@@ -64,6 +65,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- WebSocket for Terminal ---
+@app.websocket("/ws/logs")
+async def websocket_endpoint(websocket: WebSocket):
+    await trace_logger.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive, maybe handle incoming commands (filter etc) in future
+            data = await websocket.receive_text()
+    except WebSocketDisconnect:
+        trace_logger.disconnect(websocket)
 
 # --- OpenAI Protocol ---
 @app.post("/v1/chat/completions", dependencies=[Depends(verify_gateway_key)])

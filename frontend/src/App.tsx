@@ -2,19 +2,20 @@ import { useState } from 'react'
 import { Dashboard } from '@/components/Dashboard'
 import { ConfigPage } from '@/components/ConfigPage'
 import { LogsPage } from '@/components/LogsPage'
+import { TerminalPage } from '@/components/TerminalPage'
 import { Toaster } from "@/components/ui/sonner"
-import { LayoutDashboard, Settings, Boxes, ScrollText, Menu } from 'lucide-react'
+import { LayoutDashboard, Settings, Boxes, ScrollText, Menu, TerminalSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
 interface SidebarProps {
-  activeTab: 'dashboard' | 'config' | 'logs';
-  setActiveTab: (tab: 'dashboard' | 'config' | 'logs') => void;
+  activeTab: 'dashboard' | 'config' | 'logs' | 'terminal';
+  setActiveTab: (tab: 'dashboard' | 'config' | 'logs' | 'terminal') => void;
   closeSheet?: () => void;
 }
 
 function SidebarContent({ activeTab, setActiveTab, closeSheet }: SidebarProps) {
-  const handleTabClick = (tab: 'dashboard' | 'config' | 'logs') => {
+  const handleTabClick = (tab: 'dashboard' | 'config' | 'logs' | 'terminal') => {
     setActiveTab(tab);
     if (closeSheet) closeSheet();
   };
@@ -40,6 +41,19 @@ function SidebarContent({ activeTab, setActiveTab, closeSheet }: SidebarProps) {
           {activeTab === 'dashboard' && <div className="absolute left-0 top-0 h-full w-1.5 bg-sky-500 rounded-r-full" />}
           <LayoutDashboard className={cn("h-5 w-5 transition-transform duration-300", activeTab === 'dashboard' ? "scale-110" : "group-hover:scale-110")} />
           仪表盘
+        </button>
+        <button
+          onClick={() => handleTabClick('terminal')}
+          className={cn(
+            "w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-base font-medium transition-all duration-300 group relative overflow-hidden",
+            activeTab === 'terminal'
+              ? "bg-white/60 text-primary shadow-lg shadow-sky-500/10 backdrop-blur-md"
+              : "hover:bg-white/30 text-slate-500 hover:text-primary hover:shadow-md"
+          )}
+        >
+          {activeTab === 'terminal' && <div className="absolute left-0 top-0 h-full w-1.5 bg-sky-500 rounded-r-full" />}
+          <TerminalSquare className={cn("h-5 w-5 transition-transform duration-300", activeTab === 'terminal' ? "scale-110" : "group-hover:scale-110")} />
+          实时终端
         </button>
         <button
           onClick={() => handleTabClick('logs')}
@@ -79,7 +93,7 @@ function SidebarContent({ activeTab, setActiveTab, closeSheet }: SidebarProps) {
 
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'config' | 'logs'>('dashboard')
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'config' | 'logs' | 'terminal'>('dashboard')
   const [sheetOpen, setSheetOpen] = useState(false);
 
   return (
@@ -120,6 +134,7 @@ function App() {
       <main className="flex-1 md:pl-64 overflow-y-auto min-h-screen relative z-0">
         <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
           {activeTab === 'dashboard' && <Dashboard />}
+          {activeTab === 'terminal' && <TerminalPage />}
           {activeTab === 'logs' && <LogsPage />}
           {activeTab === 'config' && <ConfigPage />}
         </div>

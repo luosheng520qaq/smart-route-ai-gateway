@@ -1,24 +1,32 @@
 import { useEffect, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from "@/components/ui/sheet";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
-import { Activity, Clock, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
-import { fetchLogs, fetchStats, RequestLog, Stats } from '@/lib/api';
+import { Activity, Clock, AlertTriangle, RefreshCcw } from 'lucide-react';
+import { fetchStats, Stats } from '@/lib/api';
+import { Button } from "@/components/ui/button";
 
 const COLORS = ['#0ea5e9', '#22d3ee', '#94a3b8', '#cbd5e1']; // Sky, Cyan, Slate, Light Slate
 
+// Utility to format date for chart
+const formatChartDate = (isoStr: string) => {
+  const date = new Date(isoStr.endsWith('Z') ? isoStr : isoStr + 'Z');
+  return `${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+};
+
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [logs, setLogs] = useState<RequestLog[]>([]);
+  // Remove unused logs state for now, as Dashboard only shows charts and stats cards
+  // const [logs, setLogs] = useState<RequestLog[]>([]); 
   const [loading, setLoading] = useState(true);
+  // const [chartZoom, setChartZoom] = useState<{ left?: string, right?: string }>({}); // Prepared for future zoom implementation
 
   const loadData = async () => {
     try {
-      const [statsData, logsData] = await Promise.all([fetchStats(), fetchLogs(1, 10)]);
+      // Just fetch stats for dashboard view
+      const statsData = await fetchStats();
       setStats(statsData);
-      setLogs(logsData.logs);
+      // const logsData = await fetchLogs(1, 10);
+      // setLogs(logsData.logs);
     } catch (error) {
       console.error("Failed to load dashboard data", error);
     } finally {
@@ -32,7 +40,19 @@ export function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleResetZoom = () => {
+    // Reset logic placeholder if we implement interactive zoom later
+    // setChartZoom({});
+    console.log("Reset zoom");
+  };
+
   if (loading && !stats) return <div className="p-8 text-slate-500 animate-pulse">加载数据中...</div>;
+
+  const chartData = stats?.response_trend.map(item => ({
+    ...item,
+    time: formatChartDate(item.time),
+    value: Math.round(item.duration) // Integer ms
+  })) || [];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700 slide-in-from-bottom-4">
@@ -103,95 +123,47 @@ export function Dashboard() {
           </CardContent>
         </Card>
         <Card className="col-span-1">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>响应时间趋势 (最近50次)</CardTitle>
+            <Button variant="outline" size="sm" onClick={handleResetZoom}>
+               <RefreshCcw className="h-3 w-3 mr-1" /> 重置缩放
+            </Button>
           </CardHeader>
           <CardContent className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={stats?.response_trend.map(item => ({
-                  ...item,
-                  // Parse UTC ISO string and format to local time
-                  time: new Date(item.time.endsWith('Z') ? item.time : item.time + 'Z').toLocaleTimeString()
-              }))}>
-                <XAxis dataKey="time" hide />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="duration" stroke="#8884d8" strokeWidth={2} dot={false} />
+              <LineChart data={chartData}>
+                <XAxis 
+                  dataKey="time" 
+                  tick={{fontSize: 10}}
+                  interval="preserveStartEnd"
+                />
+                <YAxis 
+                   tickFormatter={(val) => `${val}ms`}
+                   domain={['auto', 'auto']}
+                />
+                <Tooltip 
+                   formatter={(value: any) => [`${value} ms`, "Duration"]}
+                   labelStyle={{color: '#666'}}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="value" 
+                  stroke="#8884d8" 
+                  strokeWidth={2} 
+                  dot={(props: any) => {
+                      const { cx, cy, payload } = props;
+                      let fill = "#22c55e"; // Green < 1000
+                      if (payload.value > 3000) fill = "#ef4444"; // Red > 3000
+                      else if (payload.value > 1000) fill = "#eab308"; // Yellow > 1000
+                      
+                      return <circle cx={cx} cy={cy} r={4} stroke="none" fill={fill} key={payload.time} />;
+                  }}
+                />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
-
-      {/* Logs */}
-      <Card>
-        <CardHeader>
-          <CardTitle>最近请求</CardTitle>
-          <CardDescription>点击某一行查看完整详情。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>时间</TableHead>
-                <TableHead>等级</TableHead>
-                <TableHead>模型</TableHead>
-                <TableHead>耗时</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>预览</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {logs.map((log) => (
-                <Sheet key={log.id}>
-                  <SheetTrigger asChild>
-                    <TableRow className="cursor-pointer hover:bg-muted/50">
-                      <TableCell>{new Date(log.timestamp.endsWith('Z') ? log.timestamp : log.timestamp + 'Z').toLocaleTimeString()}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{log.level}</Badge>
-                      </TableCell>
-                      <TableCell>{log.model}</TableCell>
-                      <TableCell>{log.duration_ms.toFixed(0)}ms</TableCell>
-                      <TableCell>
-                        {log.status === 'success' ? (
-                          <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        )}
-                      </TableCell>
-                      <TableCell className="max-w-[200px] truncate text-muted-foreground">
-                        {log.user_prompt_preview}
-                      </TableCell>
-                    </TableRow>
-                  </SheetTrigger>
-                  <SheetContent className="w-[600px] sm:w-[540px] overflow-y-auto">
-                    <SheetHeader>
-                      <SheetTitle>请求详情 #{log.id}</SheetTitle>
-                      <SheetDescription>
-                        {new Date(log.timestamp.endsWith('Z') ? log.timestamp : log.timestamp + 'Z').toLocaleString()} | {log.model}
-                      </SheetDescription>
-                    </SheetHeader>
-                    <div className="mt-6 space-y-6">
-                      <div>
-                        <h4 className="text-sm font-medium mb-2">请求体 (Request Body)</h4>
-                        <div className="bg-muted p-4 rounded-md text-xs font-mono overflow-auto max-h-[300px]">
-                          <pre>{JSON.stringify(JSON.parse(log.full_request), null, 2)}</pre>
-                        </div>
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-medium mb-2">响应体 (Response Body)</h4>
-                         <div className="bg-muted p-4 rounded-md text-xs font-mono overflow-auto max-h-[300px]">
-                          <pre>{JSON.stringify(JSON.parse(log.full_response), null, 2)}</pre>
-                        </div>
-                      </div>
-                    </div>
-                  </SheetContent>
-                </Sheet>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
     </div>
   );
 }

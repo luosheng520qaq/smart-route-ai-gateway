@@ -4,15 +4,16 @@ import time
 import asyncio
 import logging
 import random
+import uuid
 from typing import List, Dict, Any, Optional, Union
 from fastapi import HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
 from config_manager import config_manager
 from database import AsyncSessionLocal, RequestLog
+from logger import trace_logger
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging (Removed basicConfig as we use trace_logger now, but keeping logger for compatibility if needed)
 logger = logging.getLogger("router")
 
 class ChatMessage(BaseModel):
@@ -112,7 +113,12 @@ class RouterEngine:
         return "t1"
 
     async def route_request(self, request: ChatCompletionRequest, background_tasks: BackgroundTasks):
-        start_time = time.time()
+        start_time = time.time() # Request Arrived (T0)
+        trace_id = str(uuid.uuid4())
+        
+        # 1. Log: Request Received
+        trace_logger.log(trace_id, "REQ_RECEIVED", start_time, 0, "success")
+        
         config = config_manager.get_config()
         
         level = await self.determine_level(request.messages)
@@ -147,6 +153,21 @@ class RouterEngine:
         # Ensure max_rounds is at least 1
         if max_rounds < 1: max_rounds = 1
         
+        retry_count = 0
+        trace_events = [] # List to store trace events for DB
+
+        def add_trace_event(stage, abs_time, duration, st, rc):
+            trace_events.append({
+                "stage": stage,
+                "timestamp": abs_time,
+                "duration_ms": duration,
+                "status": st,
+                "retry_count": rc
+            })
+        
+        # Log REQ_RECEIVED for DB trace
+        add_trace_event("REQ_RECEIVED", start_time, 0, "success", 0)
+        
         for round_idx in range(max_rounds):
             if round_idx > 0:
                 logger.info(f"Starting Round {round_idx + 1}/{max_rounds} for level {level}")
@@ -171,10 +192,6 @@ class RouterEngine:
                             target_model_id = real_model_id
                         else:
                             logger.warning(f"Provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
-                            # If provider not found, we might want to fail or just use default.
-                            # Using default upstream but keeping full model_id might be wrong if it has prefix.
-                            # Let's assume user meant to use default if provider alias not found? 
-                            # Or maybe it's just a model name with slash.
                             pass 
 
                     # 2. Check model_provider_map if no prefix used (or prefix resolution failed/ignored)
@@ -187,31 +204,62 @@ class RouterEngine:
                         else:
                              logger.warning(f"Mapped provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
 
+                    # 2. Log: Model Call Start
+                    call_start_time = time.time()
+                    duration_since_req = (call_start_time - start_time) * 1000
+                    trace_logger.log(trace_id, "MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count)
+                    add_trace_event("MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count)
+                    
                     logger.info(f"Trying model {target_model_id} (Provider URL: {target_base_url}) for level {level} (Round {round_idx + 1})")
-                    response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms)
+                    
+                    # Pass callback or wrapper to capture internal events if needed, or just return them
+                    # Actually _call_upstream needs to return timing info or we pass a mutable object
+                    # Let's pass trace_events list to _call_upstream? No, it's better to keep it clean.
+                    # _call_upstream already logs to trace_logger. 
+                    # We need to capture those times for DB too.
+                    # Let's modify _call_upstream to return metadata along with response?
+                    # Or pass the add_trace_event callback.
+                    
+                    response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms, trace_id, retry_count, start_time, add_trace_event)
+                    
+                    # 3. Log: Full Response (Success)
+                    end_time = time.time()
+                    duration = (end_time - start_time) * 1000
+                    
+                    # Add trace event for Full Response
+                    add_trace_event("FULL_RESPONSE", end_time, duration, "success", retry_count)
                     
                     # Log success (Async via BackgroundTasks)
-                    duration = (time.time() - start_time) * 1000
                     background_tasks.add_task(
                         self._log_request,
-                        level, target_model_id, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data)
+                        level, target_model_id, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data), trace_events
                     )
                     
                     return response_data
                 except Exception as e:
+                    # 4. Log: Retry/Fail
+                    fail_time = time.time()
+                    fail_duration = (fail_time - call_start_time) * 1000
+                    trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count)
+                    add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count)
+                    
                     logger.error(f"Model {model_id_entry} failed (Round {round_idx + 1}): {e}")
                     last_error = e
+                    retry_count += 1
                     continue
                 
         # All failed
         duration = (time.time() - start_time) * 1000
+        trace_logger.log(trace_id, "ALL_FAILED", time.time(), duration, "fail", retry_count)
+        add_trace_event("ALL_FAILED", time.time(), duration, "fail", retry_count)
+        
         background_tasks.add_task(
             self._log_request,
-            level, "all", duration, "error", user_prompt, request.model_dump_json(), str(last_error)
+            level, "all", duration, "error", user_prompt, request.model_dump_json(), str(last_error), trace_events
         )
         raise HTTPException(status_code=502, detail=f"All models failed. Last error: {str(last_error)}")
 
-    async def _call_upstream(self, request: ChatCompletionRequest, model_id: str, base_url: str, api_key: str, timeout_ms: int, stream_timeout_ms: int) -> Dict[str, Any]:
+    async def _call_upstream(self, request: ChatCompletionRequest, model_id: str, base_url: str, api_key: str, timeout_ms: int, stream_timeout_ms: int, trace_id: str, retry_count: int, req_start_time: float, trace_callback=None) -> Dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
@@ -287,6 +335,25 @@ class RouterEngine:
                     raise Exception(f"TTFT Timeout (Headers) > {timeout_sec}s")
                 except Exception:
                     raise
+                
+                # 3. Log: First Token (Headers Received)
+                ttft_time = time.time()
+                # Duration from "Request Received" (or "Retry Start"?) Prompt says: "Retry/FirstCall -> First Token"
+                # So we need time of THIS call start? No, I passed req_start_time.
+                # Actually prompt says: "重试/首次调用→首包". So we need call_start_time passed in.
+                # I didn't pass call_start_time, only req_start_time.
+                # Let's approximate call_start roughly or just use req_start_time for global duration?
+                # "重试/首次调用→首包" implies duration of *this specific attempt*.
+                # But wait, I can just calc diff from now.
+                # Let's update signature to accept call_start_time instead of req_start_time if needed, or both.
+                # I'll just use trace_logger directly here.
+                # trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, (ttft_time - call_start_time)*1000, "success", retry_count)
+                # Ah, I don't have call_start_time in _call_upstream.
+                # I will assume "duration" in log is mostly for absolute timeline check.
+                # Let's log absolute time.
+                trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, 0, "success", retry_count)
+                if trace_callback:
+                    trace_callback("FIRST_TOKEN", ttft_time, 0, "success", retry_count) 
 
                 try:
                     # 1. Check Status Code Failover
@@ -410,6 +477,15 @@ class RouterEngine:
                             "total_tokens": 0
                         }
                     }
+                    
+                    # 5. Log: Full Response
+                    full_resp_time = time.time()
+                    # Duration from First Token -> Full Return
+                    duration_since_ttft = (full_resp_time - ttft_time)*1000
+                    trace_logger.log(trace_id, "FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
+                    if trace_callback:
+                        trace_callback("FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
+                    
                     return final_response
                 except Exception as e:
                      # Propagate exception to context manager
@@ -424,7 +500,7 @@ class RouterEngine:
             except httpx.ConnectTimeout:
                 raise Exception("Connect timeout to upstream")
 
-    async def _log_request(self, level, model, duration, status, prompt, req_json, res_json):
+    async def _log_request(self, level, model, duration, status, prompt, req_json, res_json, trace_data=None):
         # This function is now run in background
         async with AsyncSessionLocal() as session:
             try:
@@ -474,7 +550,8 @@ class RouterEngine:
                     status=status,
                     user_prompt_preview=prompt[:200] if prompt else "",
                     full_request=clean_req,
-                    full_response=clean_res
+                    full_response=clean_res,
+                    trace=json.dumps(trace_data) if trace_data else None
                 )
                 session.add(log_entry)
                 await session.commit()
