@@ -112,6 +112,12 @@
 *   **Upstream Base URL**: 默认的 LLM 供应商地址（用于未指定 Provider 的模型）。
 *   **Upstream API Key**: 默认访问密钥。
 
+### 5. 版本升级与迁移
+本项目采用向下兼容的配置管理机制。当软件版本更新引入新的配置项（如新增 `stream_timeouts`）时：
+1.  **自动迁移**: 您无需手动修改现有的 `config.json` 文件。系统启动时会自动为缺失的字段填充默认值。
+2.  **持久化**: 要将新字段永久保存到配置文件中，建议在升级后登录 Web 管理面板，点击右上角的 **"保存更改" (Save Changes)** 按钮即可。
+3.  **无损更新**: 您的旧有配置（Key, URL, 模型列表等）会完全保留，不会被覆盖。
+
 ## 🛠️ 技术栈
 
 *   **Backend**: Python, FastAPI, SQLAlchemy (Async), HTTPX

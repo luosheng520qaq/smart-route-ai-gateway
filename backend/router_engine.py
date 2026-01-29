@@ -119,16 +119,20 @@ class RouterEngine:
         
         models = []
         timeout_ms = 0
+        stream_timeout_ms = 0
         
         if level == "t1":
             models = config.t1_models
             timeout_ms = config.timeouts.get("t1", 5000)
+            stream_timeout_ms = config.stream_timeouts.get("t1", 300000)
         elif level == "t2":
             models = config.t2_models
             timeout_ms = config.timeouts.get("t2", 15000)
+            stream_timeout_ms = config.stream_timeouts.get("t2", 300000)
         else: # t3
             models = config.t3_models
             timeout_ms = config.timeouts.get("t3", 30000)
+            stream_timeout_ms = config.stream_timeouts.get("t3", 300000)
             
         if not models:
             raise HTTPException(status_code=500, detail=f"No models configured for level {level}")
@@ -173,7 +177,7 @@ class RouterEngine:
                          logger.warning(f"Mapped provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
 
                 logger.info(f"Trying model {target_model_id} (Provider URL: {target_base_url}) for level {level}")
-                response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms)
+                response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms)
                 
                 # Log success (Async via BackgroundTasks)
                 duration = (time.time() - start_time) * 1000
@@ -196,7 +200,7 @@ class RouterEngine:
         )
         raise HTTPException(status_code=502, detail=f"All models failed. Last error: {str(last_error)}")
 
-    async def _call_upstream(self, request: ChatCompletionRequest, model_id: str, base_url: str, api_key: str, timeout_ms: int) -> Dict[str, Any]:
+    async def _call_upstream(self, request: ChatCompletionRequest, model_id: str, base_url: str, api_key: str, timeout_ms: int, stream_timeout_ms: int) -> Dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
@@ -257,11 +261,23 @@ class RouterEngine:
         # -----------------------------
         
         timeout_sec = timeout_ms / 1000.0
+        # Use user-configured timeout for the stream continuity
+        stream_timeout = stream_timeout_ms / 1000.0
         
-        async with httpx.AsyncClient(timeout=timeout_sec) as client:
+        async with httpx.AsyncClient(timeout=stream_timeout) as client:
             try:
-                async with client.stream("POST", f"{base_url}/chat/completions", json=payload, headers=headers) as response:
-                    
+                # Manually manage the stream context to decouple TTFT timeout from Body timeout
+                ctx = client.stream("POST", f"{base_url}/chat/completions", json=payload, headers=headers)
+                
+                try:
+                    # Enforce TTFT (Wait for Headers)
+                    response = await asyncio.wait_for(ctx.__aenter__(), timeout=timeout_sec)
+                except asyncio.TimeoutError:
+                    raise Exception(f"TTFT Timeout (Headers) > {timeout_sec}s")
+                except Exception:
+                    raise
+
+                try:
                     # 1. Check Status Code Failover
                     if response.status_code != 200:
                         error_text = await response.aread()
@@ -384,6 +400,14 @@ class RouterEngine:
                         }
                     }
                     return final_response
+                except Exception as e:
+                     # Propagate exception to context manager
+                     if not await ctx.__aexit__(type(e), e, e.__traceback__):
+                         raise
+                else:
+                     # Success exit
+                     await ctx.__aexit__(None, None, None)
+
             except httpx.ReadTimeout:
                 raise Exception("Read timeout from upstream")
             except httpx.ConnectTimeout:

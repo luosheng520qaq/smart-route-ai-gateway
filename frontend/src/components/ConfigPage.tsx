@@ -81,6 +81,17 @@ export function ConfigPage() {
     });
   };
 
+  const updateStreamTimeout = (level: 't1' | 't2' | 't3', value: number[]) => {
+    if (!config) return;
+    setConfig({
+      ...config,
+      stream_timeouts: {
+        ...(config.stream_timeouts || { "t1": 300000, "t2": 300000, "t3": 300000 }),
+        [level]: value[0]
+      }
+    });
+  };
+
   const addStatusCode = () => {
     if (!config) return;
     setConfig({
@@ -677,7 +688,7 @@ export function ConfigPage() {
                 
                 <div className="space-y-4">
                   <div className="flex justify-between">
-                    <Label>超时阈值 (毫秒)</Label>
+                    <Label>首 Token 超时 (Time-to-First-Token)</Label>
                     <span className="text-sm text-muted-foreground">{config.timeouts[level]} ms</span>
                   </div>
                   <Slider 
@@ -686,6 +697,22 @@ export function ConfigPage() {
                     step={1000} 
                     onValueChange={(val) => updateTimeout(level as any, val)} 
                   />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>完整生成超时 (Total Generation Timeout)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {(config.stream_timeouts?.[level] ?? 300000) / 1000} s
+                    </span>
+                  </div>
+                  <Slider 
+                    value={[config.stream_timeouts?.[level] ?? 300000]} 
+                    max={600000} 
+                    step={5000} 
+                    onValueChange={(val) => updateStreamTimeout(level as any, val)} 
+                  />
+                  <p className="text-xs text-muted-foreground">允许模型生成回复的最大时长。若超过此时间仍未完成，将强制断开并尝试下一个模型。</p>
                 </div>
 
                 <div className="space-y-2">

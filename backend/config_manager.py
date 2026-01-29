@@ -50,7 +50,8 @@ class AppConfig(BaseModel):
     t1_models: List[str] = ["gpt-3.5-turbo", "gpt-4o-mini"]
     t2_models: List[str] = ["gpt-4", "gpt-4-turbo"]
     t3_models: List[str] = ["gpt-4-32k", "claude-3-opus"]
-    timeouts: Dict[str, int] = {"t1": 5000, "t2": 15000, "t3": 30000}
+    timeouts: Dict[str, int] = {"t1": 5000, "t2": 15000, "t3": 30000} # TTFT (Headers) Timeout
+    stream_timeouts: Dict[str, int] = {"t1": 300000, "t2": 300000, "t3": 300000} # Total Generation Timeout (5 min default)
     
     # Default upstream (Legacy or Default Provider)
     upstream_base_url: str = "https://api.openai.com/v1"
