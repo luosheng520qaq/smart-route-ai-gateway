@@ -38,6 +38,22 @@ class ChatCompletionRequest(BaseModel):
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
 
 class RouterEngine:
+    def _extract_text_from_content(self, content: Any) -> str:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            text_parts = []
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+                    elif item.get("type") in ["image_url", "image"]:
+                        text_parts.append("[图片]")
+            return "".join(text_parts)
+        return str(content)
+
     async def determine_level(self, messages: List[Dict[str, Any]]) -> str:
         config = config_manager.get_config()
         
@@ -46,7 +62,7 @@ class RouterEngine:
             try:
                 # Get last 3 user messages
                 user_msgs = [m for m in messages if m.get("role") == "user"][-3:]
-                history_text = "\n".join([f"User: {m.get('content', '')}" for m in user_msgs])
+                history_text = "\n".join([f"User: {self._extract_text_from_content(m.get('content'))}" for m in user_msgs])
                 
                 prompt = config.router_config.prompt_template.replace("{history}", history_text)
                 
@@ -84,7 +100,7 @@ class RouterEngine:
             return "t1" # Default fallback if no models configured
 
         # 2. Fallback Heuristic (Only used if Router enabled but failed)
-        full_text = " ".join([m.get("content", "") or "" for m in messages])
+        full_text = " ".join([self._extract_text_from_content(m.get("content")) for m in messages])
         
         if len(full_text) > 2000:
             return "t3"
@@ -118,7 +134,7 @@ class RouterEngine:
             raise HTTPException(status_code=500, detail=f"No models configured for level {level}")
 
         last_error = None
-        user_prompt = request.messages[-1].get("content", "") if request.messages else ""
+        user_prompt = self._extract_text_from_content(request.messages[-1].get("content")) if request.messages else ""
         
         for model_id_entry in models:
             try:
@@ -388,7 +404,7 @@ class RouterEngine:
                     if "messages" in req_obj:
                          # Filter only user messages to save space, or just keep the structure simple
                          clean_req = json.dumps([
-                             {"role": m.get("role"), "content": m.get("content")} 
+                             {"role": m.get("role"), "content": self._extract_text_from_content(m.get("content"))} 
                              for m in req_obj["messages"] 
                              if m.get("role") == "user"
                          ], ensure_ascii=False)
