@@ -52,6 +52,7 @@ class AppConfig(BaseModel):
     t3_models: List[str] = ["gpt-4-32k", "claude-3-opus"]
     timeouts: Dict[str, int] = {"t1": 5000, "t2": 15000, "t3": 30000} # TTFT (Headers) Timeout
     stream_timeouts: Dict[str, int] = {"t1": 300000, "t2": 300000, "t3": 300000} # Total Generation Timeout (5 min default)
+    retry_rounds: Dict[str, int] = {"t1": 1, "t2": 1, "t3": 1} # Number of times to cycle through model list
     
     # Default upstream (Legacy or Default Provider)
     upstream_base_url: str = "https://api.openai.com/v1"

@@ -92,6 +92,17 @@ export function ConfigPage() {
     });
   };
 
+  const updateRetryRounds = (level: 't1' | 't2' | 't3', value: number[]) => {
+    if (!config) return;
+    setConfig({
+      ...config,
+      retry_rounds: {
+        ...(config.retry_rounds || { "t1": 1, "t2": 1, "t3": 1 }),
+        [level]: value[0]
+      }
+    });
+  };
+
   const addStatusCode = () => {
     if (!config) return;
     setConfig({
@@ -713,6 +724,23 @@ export function ConfigPage() {
                     onValueChange={(val) => updateStreamTimeout(level as any, val)} 
                   />
                   <p className="text-xs text-muted-foreground">允许模型生成回复的最大时长。若超过此时间仍未完成，将强制断开并尝试下一个模型。</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>模型轮询轮次 (Retry Rounds)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {config.retry_rounds?.[level] ?? 1} 轮
+                    </span>
+                  </div>
+                  <Slider 
+                    value={[config.retry_rounds?.[level] ?? 1]} 
+                    max={5} 
+                    step={1} 
+                    min={1}
+                    onValueChange={(val) => updateRetryRounds(level as any, val)} 
+                  />
+                  <p className="text-xs text-muted-foreground">当所有模型都失败时，重新从头开始尝试的次数。</p>
                 </div>
 
                 <div className="space-y-2">

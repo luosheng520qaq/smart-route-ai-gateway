@@ -33,6 +33,7 @@ export interface AppConfig {
   t3_models: string[];
   timeouts: Record<string, number>;
   stream_timeouts: Record<string, number>;
+  retry_rounds: Record<string, number>;
   upstream_base_url: string;
   upstream_api_key: string;
   gateway_api_key: string; // New field

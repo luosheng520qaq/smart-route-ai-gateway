@@ -120,19 +120,23 @@ class RouterEngine:
         models = []
         timeout_ms = 0
         stream_timeout_ms = 0
+        max_rounds = 1
         
         if level == "t1":
             models = config.t1_models
             timeout_ms = config.timeouts.get("t1", 5000)
             stream_timeout_ms = config.stream_timeouts.get("t1", 300000)
+            max_rounds = config.retry_rounds.get("t1", 1)
         elif level == "t2":
             models = config.t2_models
             timeout_ms = config.timeouts.get("t2", 15000)
             stream_timeout_ms = config.stream_timeouts.get("t2", 300000)
+            max_rounds = config.retry_rounds.get("t2", 1)
         else: # t3
             models = config.t3_models
             timeout_ms = config.timeouts.get("t3", 30000)
             stream_timeout_ms = config.stream_timeouts.get("t3", 300000)
+            max_rounds = config.retry_rounds.get("t3", 1)
             
         if not models:
             raise HTTPException(status_code=500, detail=f"No models configured for level {level}")
@@ -140,57 +144,64 @@ class RouterEngine:
         last_error = None
         user_prompt = self._extract_text_from_content(request.messages[-1].get("content")) if request.messages else ""
         
-        for model_id_entry in models:
-            try:
-                # Resolve Provider
-                target_model_id = model_id_entry
-                target_base_url = config.upstream_base_url
-                target_api_key = config.upstream_api_key
+        # Ensure max_rounds is at least 1
+        if max_rounds < 1: max_rounds = 1
+        
+        for round_idx in range(max_rounds):
+            if round_idx > 0:
+                logger.info(f"Starting Round {round_idx + 1}/{max_rounds} for level {level}")
                 
-                # 1. Check if model entry has "provider/model" format
-                if "/" in model_id_entry:
-                    parts = model_id_entry.split("/", 1)
-                    provider_id = parts[0]
-                    real_model_id = parts[1]
+            for model_id_entry in models:
+                try:
+                    # Resolve Provider
+                    target_model_id = model_id_entry
+                    target_base_url = config.upstream_base_url
+                    target_api_key = config.upstream_api_key
                     
-                    if provider_id in config.providers:
-                        provider = config.providers[provider_id]
-                        target_base_url = provider.base_url
-                        target_api_key = provider.api_key
-                        target_model_id = real_model_id
-                    else:
-                        logger.warning(f"Provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
-                        # If provider not found, we might want to fail or just use default.
-                        # Using default upstream but keeping full model_id might be wrong if it has prefix.
-                        # Let's assume user meant to use default if provider alias not found? 
-                        # Or maybe it's just a model name with slash.
-                        pass 
+                    # 1. Check if model entry has "provider/model" format
+                    if "/" in model_id_entry:
+                        parts = model_id_entry.split("/", 1)
+                        provider_id = parts[0]
+                        real_model_id = parts[1]
+                        
+                        if provider_id in config.providers:
+                            provider = config.providers[provider_id]
+                            target_base_url = provider.base_url
+                            target_api_key = provider.api_key
+                            target_model_id = real_model_id
+                        else:
+                            logger.warning(f"Provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
+                            # If provider not found, we might want to fail or just use default.
+                            # Using default upstream but keeping full model_id might be wrong if it has prefix.
+                            # Let's assume user meant to use default if provider alias not found? 
+                            # Or maybe it's just a model name with slash.
+                            pass 
 
-                # 2. Check model_provider_map if no prefix used (or prefix resolution failed/ignored)
-                elif model_id_entry in config.model_provider_map:
-                    provider_id = config.model_provider_map[model_id_entry]
-                    if provider_id in config.providers:
-                        provider = config.providers[provider_id]
-                        target_base_url = provider.base_url
-                        target_api_key = provider.api_key
-                    else:
-                         logger.warning(f"Mapped provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
+                    # 2. Check model_provider_map if no prefix used (or prefix resolution failed/ignored)
+                    elif model_id_entry in config.model_provider_map:
+                        provider_id = config.model_provider_map[model_id_entry]
+                        if provider_id in config.providers:
+                            provider = config.providers[provider_id]
+                            target_base_url = provider.base_url
+                            target_api_key = provider.api_key
+                        else:
+                             logger.warning(f"Mapped provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
 
-                logger.info(f"Trying model {target_model_id} (Provider URL: {target_base_url}) for level {level}")
-                response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms)
-                
-                # Log success (Async via BackgroundTasks)
-                duration = (time.time() - start_time) * 1000
-                background_tasks.add_task(
-                    self._log_request,
-                    level, target_model_id, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data)
-                )
-                
-                return response_data
-            except Exception as e:
-                logger.error(f"Model {model_id_entry} failed: {e}")
-                last_error = e
-                continue
+                    logger.info(f"Trying model {target_model_id} (Provider URL: {target_base_url}) for level {level} (Round {round_idx + 1})")
+                    response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms)
+                    
+                    # Log success (Async via BackgroundTasks)
+                    duration = (time.time() - start_time) * 1000
+                    background_tasks.add_task(
+                        self._log_request,
+                        level, target_model_id, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data)
+                    )
+                    
+                    return response_data
+                except Exception as e:
+                    logger.error(f"Model {model_id_entry} failed (Round {round_idx + 1}): {e}")
+                    last_error = e
+                    continue
                 
         # All failed
         duration = (time.time() - start_time) * 1000
