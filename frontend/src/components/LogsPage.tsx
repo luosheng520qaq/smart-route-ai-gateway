@@ -50,6 +50,63 @@ export function LogsPage() {
     return () => clearInterval(interval);
   }, [autoRefresh, page]);
 
+  const renderMessageContent = (jsonStr: string, isResponse: boolean) => {
+      try {
+          const data = JSON.parse(jsonStr);
+          
+          // Request Logic (Array of messages)
+          if (Array.isArray(data)) {
+              return (
+                  <div className="space-y-4">
+                      {data.map((msg, idx) => (
+                          <div key={idx} className="bg-muted p-3 rounded-md text-sm">
+                              <div className="font-semibold mb-1 text-xs text-muted-foreground uppercase">
+                                  【{msg.role === 'user' ? '用户' : msg.role === 'system' ? '系统' : msg.role === 'assistant' ? '助手' : msg.role === 'tool' ? '工具' : msg.role}】
+                              </div>
+                              <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                          </div>
+                      ))}
+                  </div>
+              );
+          }
+
+          // Response Logic (Single message object or content/tool_calls dict)
+          // Backend now stores { content: "...", tool_calls: [...] } for response
+          if (isResponse) {
+               return (
+                  <div className="bg-muted p-3 rounded-md text-sm">
+                      <div className="font-semibold mb-1 text-xs text-muted-foreground uppercase">
+                          【助手】
+                      </div>
+                      {data.content && (
+                          <div className="whitespace-pre-wrap break-words mb-2">{data.content}</div>
+                      )}
+                      {data.tool_calls && Array.isArray(data.tool_calls) && (
+                          <div className="mt-2 pl-2 border-l-2 border-primary/50">
+                              <div className="text-xs font-medium mb-1 text-primary">🛠️ 工具调用:</div>
+                              {data.tool_calls.map((tc: any, idx: number) => (
+                                  <div key={idx} className="font-mono text-xs bg-background p-2 rounded border mb-1">
+                                      <div className="font-bold text-primary">{tc.function?.name || 'unknown'}</div>
+                                      <div className="text-muted-foreground break-all">{tc.function?.arguments}</div>
+                                  </div>
+                              ))}
+                          </div>
+                      )}
+                       {/* Fallback for raw error or other formats */}
+                       {!data.content && !data.tool_calls && (
+                           <pre className="text-xs">{JSON.stringify(data, null, 2)}</pre>
+                       )}
+                  </div>
+               );
+          }
+
+          // Fallback
+          return <pre className="text-xs font-mono overflow-auto">{JSON.stringify(data, null, 2)}</pre>;
+      } catch (e) {
+          return <pre className="text-xs font-mono text-red-500 overflow-auto">{jsonStr}</pre>;
+      }
+  };
+
   const TRACE_STAGE_MAP: Record<string, string> = {
     "REQ_RECEIVED": "请求接收",
     "ROUTER_START": "意图识别开始",
@@ -201,14 +258,14 @@ export function LogsPage() {
 
                       <div>
                         <h4 className="text-sm font-medium mb-2">请求体 (Request JSON)</h4>
-                        <div className="bg-muted p-4 rounded-md text-xs font-mono overflow-auto max-h-[400px]">
-                          <pre>{JSON.stringify(JSON.parse(log.full_request), null, 2)}</pre>
+                        <div className="bg-muted p-4 rounded-md overflow-auto max-h-[400px]">
+                          {renderMessageContent(log.full_request, false)}
                         </div>
                       </div>
                       <div>
                         <h4 className="text-sm font-medium mb-2">响应体 (Response JSON)</h4>
-                         <div className="bg-muted p-4 rounded-md text-xs font-mono overflow-auto max-h-[400px]">
-                          <pre>{JSON.stringify(JSON.parse(log.full_response), null, 2)}</pre>
+                         <div className="bg-muted p-4 rounded-md overflow-auto max-h-[400px]">
+                          {renderMessageContent(log.full_response, true)}
                         </div>
                       </div>
                     </div>

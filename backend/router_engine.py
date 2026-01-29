@@ -56,6 +56,12 @@ class RouterEngine:
         return str(content)
 
     async def determine_level(self, messages: List[Dict[str, Any]], trace_callback=None) -> str:
+        # Optimization: If the last message is from a tool, it means we are in a function calling loop.
+        # Skip router model and default to T2 (Active/Tool-Use) to maintain context and speed.
+        if messages and messages[-1].get("role") == "tool":
+            logger.info("Tool response detected. Skipping router and defaulting to T2.")
+            return "t2"
+
         config = config_manager.get_config()
         
         # 1. Use Router Model if enabled
