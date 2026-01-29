@@ -523,13 +523,13 @@ class RouterEngine:
                     req_obj = json.loads(req_json)
                     # Extract last user message or system instruction? User said "record user input".
                     # Let's extract all messages but keep them minimal (content only)
-                    if "messages" in req_obj:
-                         # Filter only user messages to save space, or just keep the structure simple
-                         clean_req = json.dumps([
-                             {"role": m.get("role"), "content": self._extract_text_from_content(m.get("content"))} 
-                             for m in req_obj["messages"] 
-                             if m.get("role") == "user"
-                         ], ensure_ascii=False)
+                    if "messages" in req_obj and req_obj["messages"]:
+                         # Only keep the last message to save space (Current Request)
+                         last_msg = req_obj["messages"][-1]
+                         clean_req = json.dumps([{
+                             "role": last_msg.get("role"), 
+                             "content": self._extract_text_from_content(last_msg.get("content"))
+                         }], ensure_ascii=False)
                 except:
                     clean_req = req_json # Fallback
 
