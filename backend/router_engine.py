@@ -231,8 +231,93 @@ class RouterEngine:
 
                     # 2. Log: Model Call Start
                     call_start_time = time.time()
+                    # Fix: Duration should be relative to previous step or just 0?
+                    # The prompt says: "框架接收→首次调用"
+                    # So duration_since_req is correct for "Framework Received -> First Call".
+                    # BUT for subsequent calls (retries), it should be "Switch -> Retry".
+                    # Let's check logic: call_start_time - start_time is "Time since Request Arrived".
+                    # If this is a retry, start_time is still T0.
+                    # User feedback says "delayed 900ms". Maybe because I was calculating since T0, but previous event was Router End?
+                    # Ah, "Router End" happened at T+905ms. "Model Call Start" at T+906ms.
+                    # The trace shows "duration_ms" for Model Call Start as +906ms.
+                    # Frontend interprets this as "Duration of this stage"? Or "Time offset from start"?
+                    # Frontend shows "+906ms" under Model Call Start.
+                    # User asks why 900ms delay.
+                    # Actually, if Frontend treats it as "Stage Duration", then "Router End" took 905ms?
+                    # Wait, let's check Frontend logic.
+                    # Frontend: +{event.duration_ms}ms.
+                    # Backend: duration_since_req = (call_start_time - start_time) * 1000
+                    # This means "Model Call Start" event records "Time elapsed since T0".
+                    # This is correct for "Timestamp relative to start".
+                    # But if the user thinks this is "Duration of the gap", then it is correct (gap is 906ms from start).
+                    # User says: "Intent End at +905ms", "Model Start at +906ms".
+                    # The gap is 1ms.
+                    # Why user says "delayed 900ms"?
+                    # User: "Intent End +905ms" ... "Model Start +906ms".
+                    # Maybe user misread or the UI layout is confusing.
+                    # Wait, user says: "Intent End... Model Start... +906ms".
+                    # User asks: "Why delay 900ms?"
+                    # Ah, "Intent End" took 900ms? No.
+                    # Trace:
+                    # 1. Intent Start (+0ms)
+                    # 2. Intent End (+905ms) -> This means Intent Recognition took 905ms.
+                    # 3. Model Start (+906ms) -> This means Model Start happened at 906ms from T0.
+                    # So the gap between Intent End and Model Start is 1ms.
+                    # User might be confusing "Duration of Stage" vs "Timestamp".
+                    # Frontend shows "+906ms" which looks like timestamp offset.
+                    
+                    # BUT, look at "First Token +0ms".
+                    # Code: trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, 0, ...)
+                    # Here duration is hardcoded to 0!
+                    # User says: "Model Call Start to First Token is 0ms, strange".
+                    # Yes, because I hardcoded 0.
+                    # Requirement d): "重试/首次调用→首包"耗时.
+                    # So I should calculate (ttft_time - call_start_time).
+                    
+                    # Fix 1: Calculate TTFT duration correctly.
+                    # Fix 2: User question about 900ms.
+                    # If Intent End is +905ms, and Model Start is +906ms.
+                    # The "Intent Recognition" stage took 905ms (http call to router model). This is normal.
+                    # The "Model Call Start" timestamp is 906ms.
+                    # User might be thinking "Model Call Start" itself took 906ms?
+                    # No, "Model Call Start" is a point in time.
+                    # I should ensure "duration" field in TraceEvent reflects "Stage Duration" or "Elapsed Time"?
+                    # Requirement 2: "绝对时间(ms) | 阶段耗时(ms)"
+                    # My add_trace_event usage:
+                    # REQ_RECEIVED: duration=0
+                    # ROUTER_END: duration=(end-start) -> 905ms. Correct.
+                    # MODEL_CALL_START: duration=(call_start - start_time). This is "Elapsed since T0", NOT "Stage Duration".
+                    # This is the bug!
+                    # For point-in-time events (Start, First Token), "duration" should probably be:
+                    # - For "Model Call Start": Duration of "Framework Prep"? Or just 0?
+                    #   Req a): "发起→框架接收"耗时. (This is T0-ClientSend, we can't know ClientSend).
+                    #   Req b): "框架接收→首次调用"耗时. This is (ModelCallStart - ReqReceived).
+                    #   So for MODEL_CALL_START, duration should be (call_start_time - start_time).
+                    #   Wait, if Router is involved, it includes Router time.
+                    #   If Router is used: Req -> RouterStart -> RouterEnd -> ModelCallStart.
+                    #   (ModelCallStart - RouterEnd) is the "Framework Prep" after routing.
+                    #   (ModelCallStart - ReqReceived) is total prep time.
+                    #   Current code: duration_since_req = (call_start_time - start_time).
+                    #   This IS "Framework Prep" (including Router).
+                    #   So +906ms is correct for "Time since Request Received".
+                    
+                    # User's confusion: "Intent End +905ms", "Model Start +906ms".
+                    # User thinks "Model Start" implies *starting* the model call.
+                    # User asks: "Why delayed 900ms?" -> Because Router took 905ms.
+                    # User asks: "Model Start to First Token is 0ms?" -> Because I passed 0.
+                    
+                    # Fix Plan:
+                    # 1. MODEL_CALL_START: duration should be "Time since Request Received" (as requested in 1b).
+                    #    Current: (call_start - start_time). Correct.
+                    # 2. FIRST_TOKEN: duration should be "Call Start -> First Token" (as requested in 1d).
+                    #    Current: 0. Incorrect.
+                    #    Fix: Pass (ttft_time - call_start_time).
+                    
                     duration_since_req = (call_start_time - start_time) * 1000
                     trace_logger.log(trace_id, "MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count)
+                    # For frontend consistency, we might want "Stage Duration" for everything?
+                    # But the requirement says specific durations for specific events.
+                    # Let's keep MODEL_CALL_START as "Time from T0".
                     add_trace_event("MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count, model=target_model_id)
                     
                     logger.info(f"Trying model {target_model_id} (Provider URL: {target_base_url}) for level {level} (Round {round_idx + 1})")
@@ -245,7 +330,7 @@ class RouterEngine:
                     # Let's modify _call_upstream to return metadata along with response?
                     # Or pass the add_trace_event callback.
                     
-                    response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms, trace_id, retry_count, start_time, add_trace_event)
+                    response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms, trace_id, retry_count, call_start_time, add_trace_event)
                     
                     # 3. Log: Full Response (Success)
                     end_time = time.time()
@@ -389,21 +474,12 @@ class RouterEngine:
                 # 3. Log: First Token (Headers Received)
                 ttft_time = time.time()
                 # Duration from "Request Received" (or "Retry Start"?) Prompt says: "Retry/FirstCall -> First Token"
-                # So we need time of THIS call start? No, I passed req_start_time.
-                # Actually prompt says: "重试/首次调用→首包". So we need call_start_time passed in.
-                # I didn't pass call_start_time, only req_start_time.
-                # Let's approximate call_start roughly or just use req_start_time for global duration?
-                # "重试/首次调用→首包" implies duration of *this specific attempt*.
-                # But wait, I can just calc diff from now.
-                # Let's update signature to accept call_start_time instead of req_start_time if needed, or both.
-                # I'll just use trace_logger directly here.
-                # trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, (ttft_time - call_start_time)*1000, "success", retry_count)
-                # Ah, I don't have call_start_time in _call_upstream.
-                # I will assume "duration" in log is mostly for absolute timeline check.
-                # Let's log absolute time.
-                trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, 0, "success", retry_count)
+                # So we need time of THIS call start? Yes, req_start_time passed in is actually call_start_time now.
+                duration_ttft = (ttft_time - req_start_time) * 1000
+                
+                trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count)
                 if trace_callback:
-                    trace_callback("FIRST_TOKEN", ttft_time, 0, "success", retry_count) 
+                    trace_callback("FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count) 
 
                 try:
                     # 1. Check Status Code Failover
