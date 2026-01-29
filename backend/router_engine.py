@@ -138,14 +138,17 @@ class RouterEngine:
         
         trace_events = [] # List to store trace events for DB
 
-        def add_trace_event(stage, abs_time, duration, st, rc):
-            trace_events.append({
+        def add_trace_event(stage, abs_time, duration, st, rc, model=None):
+            event = {
                 "stage": stage,
                 "timestamp": abs_time,
                 "duration_ms": duration,
                 "status": st,
                 "retry_count": rc
-            })
+            }
+            if model:
+                event["model"] = model
+            trace_events.append(event)
 
         # 1. Log: Request Received
         trace_logger.log(trace_id, "REQ_RECEIVED", start_time, 0, "success")
@@ -228,7 +231,7 @@ class RouterEngine:
                     call_start_time = time.time()
                     duration_since_req = (call_start_time - start_time) * 1000
                     trace_logger.log(trace_id, "MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count)
-                    add_trace_event("MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count)
+                    add_trace_event("MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count, model=target_model_id)
                     
                     logger.info(f"Trying model {target_model_id} (Provider URL: {target_base_url}) for level {level} (Round {round_idx + 1})")
                     
@@ -258,7 +261,7 @@ class RouterEngine:
                     fail_time = time.time()
                     fail_duration = (fail_time - call_start_time) * 1000
                     trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count)
-                    add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count)
+                    add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=target_model_id)
                     
                     logger.error(f"Model {model_id_entry} failed (Round {round_idx + 1}): {e}")
                     last_error = e

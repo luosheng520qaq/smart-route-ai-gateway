@@ -64,6 +64,7 @@ export interface TraceEvent {
   duration_ms: number;
   status: string;
   retry_count: number;
+  model?: string;
 }
 
 export interface Stats {

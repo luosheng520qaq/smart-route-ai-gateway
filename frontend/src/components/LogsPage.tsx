@@ -234,7 +234,14 @@ export function LogsPage() {
                                     </div>
                                     <div className="flex-1">
                                       <div className="flex justify-between items-center">
-                                        <span className="font-medium">{TRACE_STAGE_MAP[event.stage] || event.stage}</span>
+                                        <div className="flex flex-col">
+                                            <span className="font-medium">{TRACE_STAGE_MAP[event.stage] || event.stage}</span>
+                                            {event.model && (
+                                                <span className="text-[10px] text-muted-foreground font-mono">
+                                                    {event.model}
+                                                </span>
+                                            )}
+                                        </div>
                                         <span className="text-xs text-muted-foreground font-mono">
                                           +{event.duration_ms.toFixed(0)}ms
                                         </span>
