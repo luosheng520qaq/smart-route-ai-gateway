@@ -4,93 +4,219 @@
 
 @layer base {
   :root {
-    /* 浅色系毛玻璃基调 - 灵感来自 macOS Big Sur / Vision OS */
+    /* Ice & Silver Theme (No Purple) */
     
-    /* 背景色：极淡的蓝灰色，配合渐变使用 */
-    --background: 210 40% 98%;
-    /* 前景色：深蓝灰，保证可读性 */
-    --foreground: 222 47% 11%;
+    --background: 210 20% 98%; /* Very crisp white-blue base */
+    --foreground: 215 25% 27%; /* Slate blue-grey for text */
 
-    /* 卡片背景：半透明白色，用于毛玻璃 */
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-
-    /* Popover 也是半透明 */
+    --card-foreground: 215 25% 27%;
+ 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-
-    /* 主色：清新的天蓝色/靛蓝色 */
-    --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
-
-    /* 次要颜色：淡紫色调 */
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222 47% 11%;
-
-    /* 柔和的静音色 */
-    --muted: 210 40% 96.1%;
+    --popover-foreground: 215 25% 27%;
+ 
+    /* Sky Blue Primary */
+    --primary: 199 89% 48%; /* Sky 500-ish */
+    --primary-foreground: 0 0% 100%;
+ 
+    /* Silver / Pale Cyan Accents */
+    --secondary: 180 20% 96%; /* Very pale cyan/silver */
+    --secondary-foreground: 215 25% 27%;
+ 
+    --muted: 210 20% 96%;
     --muted-foreground: 215 16% 47%;
-
-    /* 强调色 */
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222 47% 11%;
-
-    /* 破坏性操作红色 */
+ 
+    --accent: 186 100% 42%; /* Cyan */
+    --accent-foreground: 0 0% 100%;
+ 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
-    /* 边框颜色：非常淡，主要靠阴影区分 */
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221 83% 53%;
-
-    --radius: 1rem; /* 更大的圆角 */
+    --border: 210 20% 90%;
+    --input: 210 20% 90%;
+    --ring: 199 89% 48%;
+ 
+    --radius: 1.25rem;
+  }
+ 
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+ 
+    --card: 222 47% 11%;
+    --card-foreground: 210 40% 98%;
+ 
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+ 
+    --primary: 199 89% 60%;
+    --primary-foreground: 222 47% 11%;
+ 
+    --secondary: 217 19% 27%;
+    --secondary-foreground: 210 40% 98%;
+ 
+    --muted: 217 19% 27%;
+    --muted-foreground: 215 20% 65%;
+ 
+    --accent: 186 100% 50%;
+    --accent-foreground: 210 40% 98%;
+ 
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --border: 217 19% 27%;
+    --input: 217 19% 27%;
+    --ring: 199 89% 60%;
   }
 }
-
+ 
 @layer base {
   * {
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
-    /* 全局背景渐变 */
-    background: radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), 
-                radial-gradient(at 50% 0%, hsla(225,39%,30%,1) 0, transparent 50%), 
-                radial-gradient(at 100% 0%, hsla(339,49%,30%,1) 0, transparent 50%);
-    background-color: #f0f4f8; /* 浅色底 */
-    background-image: 
-        radial-gradient(at 40% 20%, hsla(28,100%,74%,1) 0px, transparent 50%),
-        radial-gradient(at 80% 0%, hsla(189,100%,56%,1) 0px, transparent 50%),
-        radial-gradient(at 0% 50%, hsla(340,100%,76%,1) 0px, transparent 50%),
-        radial-gradient(at 80% 50%, hsla(240,100%,70%,1) 0px, transparent 50%),
-        radial-gradient(at 0% 100%, hsla(22,100%,77%,1) 0px, transparent 50%),
-        radial-gradient(at 80% 100%, hsla(242,100%,70%,1) 0px, transparent 50%),
-        radial-gradient(at 0% 0%, hsla(343,100%,76%,1) 0px, transparent 50%);
-    background-attachment: fixed;
-    min-height: 100vh;
+    @apply bg-background text-foreground overflow-x-hidden;
+    font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
 
-/* 毛玻璃实用类 */
+/* Liquid Background Animation */
+@keyframes blob {
+  0% { transform: translate(0px, 0px) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+/* Dynamic Gradient Background Layer */
+.liquid-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -1;
+  overflow: hidden;
+  background-color: #f8fafc; /* Slate 50 */
+}
+
+.liquid-blob {
+  position: absolute;
+  filter: blur(80px);
+  z-index: -1;
+  opacity: 0.5;
+  animation: blob 10s infinite alternate ease-in-out;
+}
+
+/* Sky Blue Blob */
+.blob-1 {
+  top: -10%;
+  left: -10%;
+  width: 60vw;
+  height: 60vw;
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.25) 0%, rgba(14, 165, 233, 0) 70%); /* Sky 500 */
+  animation-delay: 0s;
+}
+
+/* Silver/White Blob */
+.blob-2 {
+  bottom: -10%;
+  right: -10%;
+  width: 60vw;
+  height: 60vw;
+  background: radial-gradient(circle, rgba(148, 163, 184, 0.25) 0%, rgba(148, 163, 184, 0) 70%); /* Slate 400 */
+  animation-delay: 2s;
+}
+
+/* Cyan/Teal Blob */
+.blob-3 {
+  top: 30%;
+  left: 30%;
+  width: 50vw;
+  height: 50vw;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.2) 0%, rgba(34, 211, 238, 0) 70%); /* Cyan 400 */
+  animation-delay: 4s;
+}
+
+/* Premium Glass Effect - Icy Look */
 .glass {
-  @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-xl;
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 
+    0 4px 30px rgba(0, 0, 0, 0.03),
+    inset 0 0 20px rgba(255, 255, 255, 0.6);
 }
 
-.glass-card {
-  @apply bg-white/60 backdrop-blur-lg border border-white/40 shadow-sm hover:shadow-md transition-all duration-300;
+.dark .glass {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 
+    0 4px 30px rgba(0, 0, 0, 0.3),
+    inset 0 0 20px rgba(255, 255, 255, 0.05);
 }
 
-.glass-input {
-  @apply bg-white/50 border-white/30 focus:bg-white/80 transition-all;
-}
-
-/* 覆盖 Shadcn 默认 Card 样式以应用毛玻璃 */
+/* Card Overrides for Glass Look */
 .bg-card {
-  @apply bg-white/60 backdrop-blur-md border-white/50 shadow-sm !important;
+  background: rgba(255, 255, 255, 0.5) !important;
+  backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.7) !important;
+  box-shadow: 0 4px 20px 0 rgba(148, 163, 184, 0.1) !important; /* Slate shadow */
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
-/* 侧边栏特殊处理 */
+.bg-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 30px 0 rgba(14, 165, 233, 0.15) !important; /* Sky blue shadow on hover */
+  border-color: rgba(255, 255, 255, 1) !important;
+}
+
+.dark .bg-card {
+  background: rgba(30, 41, 59, 0.4) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Sidebar Specific */
 .sidebar-glass {
-  @apply bg-white/40 backdrop-blur-xl border-r border-white/30;
+  background: rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(24px) saturate(150%);
+  border-right: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 10px 0 30px rgba(0,0,0,0.01);
+}
+
+/* Input & Elements */
+input, textarea, select {
+  background: rgba(255, 255, 255, 0.5) !important;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+  transition: all 0.3s ease;
+}
+
+input:focus, textarea:focus, select:focus {
+  background: rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 0 0 2px hsl(var(--primary)) !important;
+  border-color: transparent !important;
+}
+
+/* Custom Scrollbar - Silver/Blue */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4); /* Slate 400 */
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(14, 165, 233, 0.6); /* Sky 500 */
 }
