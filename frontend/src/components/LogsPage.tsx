@@ -50,6 +50,18 @@ export function LogsPage() {
     return () => clearInterval(interval);
   }, [autoRefresh, page]);
 
+  const TRACE_STAGE_MAP: Record<string, string> = {
+    "REQ_RECEIVED": "请求接收",
+    "ROUTER_START": "意图识别开始",
+    "ROUTER_END": "意图识别结束",
+    "ROUTER_FAIL": "意图识别失败",
+    "MODEL_CALL_START": "模型调用开始",
+    "FIRST_TOKEN": "首包到达",
+    "FULL_RESPONSE": "完整响应",
+    "MODEL_FAIL": "调用失败",
+    "ALL_FAILED": "全部失败"
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-20">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0">
@@ -165,7 +177,7 @@ export function LogsPage() {
                                     </div>
                                     <div className="flex-1">
                                       <div className="flex justify-between items-center">
-                                        <span className="font-medium">{event.stage}</span>
+                                        <span className="font-medium">{TRACE_STAGE_MAP[event.stage] || event.stage}</span>
                                         <span className="text-xs text-muted-foreground font-mono">
                                           +{event.duration_ms.toFixed(0)}ms
                                         </span>

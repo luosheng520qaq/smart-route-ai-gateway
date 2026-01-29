@@ -55,12 +55,17 @@ class RouterEngine:
             return "".join(text_parts)
         return str(content)
 
-    async def determine_level(self, messages: List[Dict[str, Any]]) -> str:
+    async def determine_level(self, messages: List[Dict[str, Any]], trace_callback=None) -> str:
         config = config_manager.get_config()
         
         # 1. Use Router Model if enabled
         if config.router_config.enabled:
             try:
+                # Log Router Start
+                start_t = time.time()
+                if trace_callback:
+                    trace_callback("ROUTER_START", start_t, 0, "success", 0)
+
                 # Get last 3 user messages
                 user_msgs = [m for m in messages if m.get("role") == "user"][-3:]
                 history_text = "\n".join([f"User: {self._extract_text_from_content(m.get('content'))}" for m in user_msgs])
@@ -78,6 +83,13 @@ class RouterEngine:
                         },
                         headers={"Authorization": f"Bearer {config.router_config.api_key}"}
                     )
+                    
+                    # Log Router End
+                    end_t = time.time()
+                    duration = (end_t - start_t) * 1000
+                    if trace_callback:
+                        trace_callback("ROUTER_END", end_t, duration, "success", 0)
+
                     if resp.status_code == 200:
                         content = resp.json()["choices"][0]["message"]["content"].strip().upper()
                         if "T1" in content: return "t1"
@@ -86,6 +98,8 @@ class RouterEngine:
             except Exception as e:
                 logger.error(f"Router Model failed: {e}. Falling back to heuristic.")
                 # If Router enabled but failed, fall through to heuristic below
+                if trace_callback:
+                     trace_callback("ROUTER_FAIL", time.time(), 0, "fail", 0)
         else:
             # If Router disabled, use Random Level Selection as requested
             # Pick from levels that have models configured
@@ -116,12 +130,25 @@ class RouterEngine:
         start_time = time.time() # Request Arrived (T0)
         trace_id = str(uuid.uuid4())
         
+        trace_events = [] # List to store trace events for DB
+
+        def add_trace_event(stage, abs_time, duration, st, rc):
+            trace_events.append({
+                "stage": stage,
+                "timestamp": abs_time,
+                "duration_ms": duration,
+                "status": st,
+                "retry_count": rc
+            })
+
         # 1. Log: Request Received
         trace_logger.log(trace_id, "REQ_RECEIVED", start_time, 0, "success")
+        # Log REQ_RECEIVED for DB trace
+        add_trace_event("REQ_RECEIVED", start_time, 0, "success", 0)
         
         config = config_manager.get_config()
         
-        level = await self.determine_level(request.messages)
+        level = await self.determine_level(request.messages, trace_callback=add_trace_event)
         
         models = []
         timeout_ms = 0
@@ -154,19 +181,6 @@ class RouterEngine:
         if max_rounds < 1: max_rounds = 1
         
         retry_count = 0
-        trace_events = [] # List to store trace events for DB
-
-        def add_trace_event(stage, abs_time, duration, st, rc):
-            trace_events.append({
-                "stage": stage,
-                "timestamp": abs_time,
-                "duration_ms": duration,
-                "status": st,
-                "retry_count": rc
-            })
-        
-        # Log REQ_RECEIVED for DB trace
-        add_trace_event("REQ_RECEIVED", start_time, 0, "success", 0)
         
         for round_idx in range(max_rounds):
             if round_idx > 0:
@@ -225,9 +239,6 @@ class RouterEngine:
                     # 3. Log: Full Response (Success)
                     end_time = time.time()
                     duration = (end_time - start_time) * 1000
-                    
-                    # Add trace event for Full Response
-                    add_trace_event("FULL_RESPONSE", end_time, duration, "success", retry_count)
                     
                     # Log success (Async via BackgroundTasks)
                     background_tasks.add_task(
