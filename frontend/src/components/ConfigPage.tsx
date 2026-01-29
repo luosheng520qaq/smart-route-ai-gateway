@@ -171,7 +171,7 @@ export function ConfigPage() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto animate-in fade-in duration-500 pb-20">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">系统配置</h2>
           <p className="text-muted-foreground">管理路由策略和上游供应商设置。</p>
@@ -258,7 +258,7 @@ export function ConfigPage() {
                     </Button>
                   </div>
                   
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                      <div className="space-y-2">
                       <Label>Provider ID</Label>
                       <Input 
@@ -276,7 +276,7 @@ export function ConfigPage() {
                         placeholder="e.g. azure"
                       />
                     </div>
-                    <div className="space-y-2 col-span-2">
+                    <div className="space-y-2 md:col-span-2">
                        <Label>Base URL</Label>
                        <Input 
                          value={provider.base_url}
@@ -569,7 +569,7 @@ export function ConfigPage() {
           
           {config.router_config.enabled && (
             <div className="space-y-4 mt-4 pl-4 border-l-2 border-primary/20">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>分类模型 ID</Label>
                   <Input 

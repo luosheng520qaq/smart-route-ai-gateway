@@ -52,7 +52,7 @@ export function LogsPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-20">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">实时日志</h2>
           <p className="text-muted-foreground">查看所有请求的详细记录和调试信息。</p>
@@ -73,8 +73,8 @@ export function LogsPage() {
       </div>
 
       <Card>
-        <CardContent className="p-0">
-          <Table>
+        <CardContent className="p-0 overflow-x-auto">
+          <Table className="min-w-[800px]">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[180px]">时间</TableHead>
