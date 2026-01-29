@@ -138,7 +138,7 @@ class RouterEngine:
         
         trace_events = [] # List to store trace events for DB
 
-        def add_trace_event(stage, abs_time, duration, st, rc, model=None):
+        def add_trace_event(stage, abs_time, duration, st, rc, model=None, reason=None):
             event = {
                 "stage": stage,
                 "timestamp": abs_time,
@@ -148,6 +148,8 @@ class RouterEngine:
             }
             if model:
                 event["model"] = model
+            if reason:
+                event["reason"] = reason
             trace_events.append(event)
 
         # 1. Log: Request Received
@@ -260,8 +262,36 @@ class RouterEngine:
                     # 4. Log: Retry/Fail
                     fail_time = time.time()
                     fail_duration = (fail_time - call_start_time) * 1000
+                    
+                    # Extract Reason from Exception
+                    error_msg = str(e)
+                    reason = "Unknown Error"
+                    if "TTFT Timeout" in error_msg:
+                        reason = "超首token限制时长"
+                    elif "Total Timeout" in error_msg:
+                        reason = "超总限制时长"
+                    elif "Status Code Error" in error_msg:
+                         # Extract code?
+                         reason = "触发错误状态码"
+                         if ":" in error_msg:
+                             reason += f": {error_msg.split(':')[1].strip()}"
+                    elif "Error Keyword Match" in error_msg:
+                         reason = "错误关键词"
+                         if ":" in error_msg:
+                             reason += f": {error_msg.split(':')[1].strip()}"
+                    elif "Empty Response" in error_msg:
+                        reason = "空返回"
+                    elif "Connect Timeout" in error_msg:
+                        reason = "连接超时"
+                    elif "Upstream Error" in error_msg:
+                         reason = "上游错误"
+                         if ":" in error_msg:
+                             reason += f": {error_msg.split(':')[1].strip()}"
+                    else:
+                        reason = error_msg[:50] # Fallback to first 50 chars
+
                     trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count)
-                    add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=target_model_id)
+                    add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=target_model_id, reason=reason)
                     
                     logger.error(f"Model {model_id_entry} failed (Round {round_idx + 1}): {e}")
                     last_error = e
@@ -386,15 +416,22 @@ class RouterEngine:
                             should_retry = True
                         
                         # 2. Check Error Keyword Failover
+                        keyword_match = None
                         if not should_retry:
                             lower_error = error_str.lower()
-                            if any(k in lower_error for k in config.retry_config.error_keywords):
-                                should_retry = True
+                            for k in config.retry_config.error_keywords:
+                                if k in lower_error:
+                                    should_retry = True
+                                    keyword_match = k
+                                    break
                         
                         if should_retry:
-                            raise Exception(f"Retryable error {response.status_code}: {error_str}")
+                            if keyword_match:
+                                raise Exception(f"Error Keyword Match: {keyword_match} in {error_str[:100]}")
+                            else:
+                                raise Exception(f"Status Code Error: {response.status_code} - {error_str[:100]}")
                         else:
-                            raise Exception(f"Upstream error {response.status_code}: {error_str}")
+                            raise Exception(f"Upstream Error: {response.status_code} - {error_str[:100]}")
 
                     # Aggregate Stream
                     aggregated_content = ""
@@ -465,7 +502,7 @@ class RouterEngine:
 
                     # Check for empty content (Retry trigger)
                     if not aggregated_content and not aggregated_tool_calls:
-                        raise Exception("Upstream returned empty content and no tool calls")
+                        raise Exception("Empty Response: Upstream returned empty content and no tool calls")
 
                     # Construct final response
                     message = {
@@ -516,9 +553,9 @@ class RouterEngine:
                      await ctx.__aexit__(None, None, None)
 
             except httpx.ReadTimeout:
-                raise Exception("Read timeout from upstream")
+                raise Exception("Total Timeout (Read): Read timeout from upstream")
             except httpx.ConnectTimeout:
-                raise Exception("Connect timeout to upstream")
+                raise Exception("Connect Timeout: Connect timeout to upstream")
 
     async def _log_request(self, level, model, duration, status, prompt, req_json, res_json, trace_data=None):
         # This function is now run in background

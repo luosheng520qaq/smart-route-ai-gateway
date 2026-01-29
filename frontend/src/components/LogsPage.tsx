@@ -241,6 +241,11 @@ export function LogsPage() {
                                                     {event.model}
                                                 </span>
                                             )}
+                                            {event.reason && (
+                                                <span className="text-[10px] text-red-500 font-mono mt-0.5">
+                                                    {event.reason}
+                                                </span>
+                                            )}
                                         </div>
                                         <span className="text-xs text-muted-foreground font-mono">
                                           +{event.duration_ms.toFixed(0)}ms
