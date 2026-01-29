@@ -248,7 +248,8 @@ export function LogsPage() {
                                             )}
                                         </div>
                                         <span className="text-xs text-muted-foreground font-mono">
-                                          +{event.duration_ms.toFixed(0)}ms
+                                          {["REQ_RECEIVED", "ROUTER_START", "MODEL_CALL_START"].includes(event.stage) ? '' : '+'}
+                                          {event.duration_ms.toFixed(0)}ms
                                         </span>
                                       </div>
                                       <div className="text-xs text-muted-foreground flex gap-2">
