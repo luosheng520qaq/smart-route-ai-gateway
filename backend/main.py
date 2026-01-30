@@ -1,10 +1,13 @@
+from typing import Optional
 from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks, Security, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from sqlalchemy import select, desc, func
+from fastapi.responses import FileResponse, StreamingResponse
+from sqlalchemy import select, desc, func, and_
 from datetime import datetime, timedelta, timezone
+import csv
+import io
 from contextlib import asynccontextmanager
 import json
 import os
@@ -102,32 +105,63 @@ async def list_models():
 
 # --- Management API ---
 
-@app.get("/api/config")
+@app.get("/api/config", dependencies=[Depends(verify_gateway_key)])
 async def get_config():
     return config_manager.get_config()
 
-@app.post("/api/config")
+@app.post("/api/config", dependencies=[Depends(verify_gateway_key)])
 async def update_config(config: AppConfig):
     config_manager.update_config(config.model_dump())
     return {"status": "success", "config": config_manager.get_config()}
 
-@app.get("/api/logs")
+@app.get("/api/logs", dependencies=[Depends(verify_gateway_key)])
 async def get_logs(
     page: int = 1, 
-    page_size: int = 20, 
+    page_size: int = 20,
+    level: Optional[str] = None,
+    status: Optional[str] = None,
+    model: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
     offset = (page - 1) * page_size
-    # Optimize: Select only necessary columns for list view if needed, but for now full object is fine
-    # Ensure we use the index on timestamp
-    query = select(RequestLog).order_by(desc(RequestLog.timestamp)).offset(offset).limit(page_size)
-    result = await db.execute(query)
-    logs = result.scalars().all()
     
-    # Get total count
-    count_query = select(func.count(RequestLog.id))
-    count_result = await db.execute(count_query)
+    # Build Query
+    stmt = select(RequestLog).order_by(desc(RequestLog.timestamp))
+    
+    conditions = []
+    if level:
+        conditions.append(RequestLog.level == level)
+    if status:
+        conditions.append(RequestLog.status == status)
+    if model:
+        conditions.append(RequestLog.model.contains(model))
+    if start_date:
+        try:
+            sd = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            conditions.append(RequestLog.timestamp >= sd.replace(tzinfo=None))
+        except: pass
+    if end_date:
+        try:
+            ed = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            conditions.append(RequestLog.timestamp <= ed.replace(tzinfo=None))
+        except: pass
+        
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
+    
+    # Execute Count
+    count_stmt = select(func.count(RequestLog.id))
+    if conditions:
+        count_stmt = count_stmt.where(and_(*conditions))
+    count_result = await db.execute(count_stmt)
     total = count_result.scalar()
+    
+    # Execute Main Query
+    stmt = stmt.offset(offset).limit(page_size)
+    result = await db.execute(stmt)
+    logs = result.scalars().all()
     
     return {
         "total": total,
@@ -136,7 +170,64 @@ async def get_logs(
         "logs": logs
     }
 
-@app.get("/api/stats")
+@app.get("/api/logs/export", dependencies=[Depends(verify_gateway_key)])
+async def export_logs(
+    level: Optional[str] = None,
+    status: Optional[str] = None,
+    model: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    # Build Query (Same as above but no pagination)
+    stmt = select(RequestLog).order_by(desc(RequestLog.timestamp))
+    
+    conditions = []
+    if level: conditions.append(RequestLog.level == level)
+    if status: conditions.append(RequestLog.status == status)
+    if model: conditions.append(RequestLog.model.contains(model))
+    if start_date:
+        try:
+            sd = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            conditions.append(RequestLog.timestamp >= sd.replace(tzinfo=None))
+        except: pass
+    if end_date:
+        try:
+            ed = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            conditions.append(RequestLog.timestamp <= ed.replace(tzinfo=None))
+        except: pass
+        
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
+        
+    result = await db.execute(stmt)
+    logs = result.scalars().all()
+    
+    # Generate CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Timestamp", "Level", "Model", "Duration(ms)", "Status", "Prompt", "Error Details", "Stack Trace", "Retry Count"])
+    
+    for log in logs:
+        writer.writerow([
+            log.id,
+            log.timestamp.isoformat(),
+            log.level,
+            log.model,
+            f"{log.duration_ms:.2f}",
+            log.status,
+            log.user_prompt_preview,
+            log.full_response if log.status != 'success' else "",
+            log.stack_trace or "",
+            log.retry_count or 0
+        ])
+    
+    output.seek(0)
+    response = StreamingResponse(iter([output.getvalue()]), media_type="text/csv")
+    response.headers["Content-Disposition"] = f"attachment; filename=logs_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv"
+    return response
+
+@app.get("/api/stats", dependencies=[Depends(verify_gateway_key)])
 async def get_stats(db: AsyncSession = Depends(get_db)):
     # Today's stats
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)

@@ -35,27 +35,29 @@ class RequestLog(Base):
     full_request = Column(Text) # JSON string
     full_response = Column(Text) # JSON string
     trace = Column(Text) # JSON string for timeline events
+    stack_trace = Column(Text) # Error stack trace
+    retry_count = Column(Integer, default=0)
 
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
-        # Simple migration: check if 'trace' column exists, if not add it
-        # Note: SQLite doesn't support IF NOT EXISTS in ALTER TABLE well for columns in all versions,
-        # but SQLAlchemy sync methods usually handle create_all (only creates missing tables).
-        # For adding a column to existing table, we need manual check or alembic.
-        # Let's do a raw check and alter if needed.
+        # Manual migration for new columns
         from sqlalchemy import text
         try:
-            # Try to select the column to see if it exists
-            await conn.execute(text("SELECT trace FROM request_logs LIMIT 1"))
+            await conn.execute(text("ALTER TABLE request_logs ADD COLUMN trace TEXT"))
         except Exception:
-            # If failed, likely column missing
-            try:
-                await conn.execute(text("ALTER TABLE request_logs ADD COLUMN trace TEXT"))
-                print("[INFO] Migrated database: Added 'trace' column.")
-            except Exception as e:
-                print(f"[WARN] Failed to add trace column (might already exist or other error): {e}")
+            pass # Already exists
+            
+        try:
+            await conn.execute(text("ALTER TABLE request_logs ADD COLUMN stack_trace TEXT"))
+        except Exception:
+            pass # Already exists
+
+        try:
+            await conn.execute(text("ALTER TABLE request_logs ADD COLUMN retry_count INTEGER DEFAULT 0"))
+        except Exception:
+            pass # Already exists
 
 async def get_db():
     async with AsyncSessionLocal() as session:

@@ -5,6 +5,7 @@ import asyncio
 import logging
 import random
 import uuid
+import traceback
 from typing import List, Dict, Any, Optional, Union
 from fastapi import HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -193,6 +194,7 @@ class RouterEngine:
             raise HTTPException(status_code=500, detail=f"No models configured for level {level}")
 
         last_error = None
+        last_stack_trace = None
         user_prompt = self._extract_text_from_content(request.messages[-1].get("content")) if request.messages else ""
         
         # Ensure max_rounds is at least 1
@@ -387,6 +389,7 @@ class RouterEngine:
                     
                     logger.error(f"Model {model_id_entry} failed (Round {round_idx + 1}): {e}")
                     last_error = e
+                    last_stack_trace = traceback.format_exc()
                     retry_count += 1
                     continue
                 
@@ -397,7 +400,7 @@ class RouterEngine:
         
         background_tasks.add_task(
             self._log_request,
-            level, "all", duration, "error", user_prompt, request.model_dump_json(), str(last_error), trace_events
+            level, "all", duration, "error", user_prompt, request.model_dump_json(), str(last_error), trace_events, last_stack_trace, retry_count
         )
         raise HTTPException(status_code=502, detail=f"All models failed. Last error: {str(last_error)}")
 
@@ -655,7 +658,7 @@ class RouterEngine:
             except httpx.ConnectTimeout:
                 raise Exception("Connect Timeout: Connect timeout to upstream")
 
-    async def _log_request(self, level, model, duration, status, prompt, req_json, res_json, trace_data=None):
+    async def _log_request(self, level, model, duration, status, prompt, req_json, res_json, trace_data=None, stack_trace=None, retry_count=0):
         # This function is now run in background
         async with AsyncSessionLocal() as session:
             try:
@@ -706,7 +709,9 @@ class RouterEngine:
                     user_prompt_preview=prompt[:200] if prompt else "",
                     full_request=clean_req,
                     full_response=clean_res,
-                    trace=json.dumps(trace_data) if trace_data else None
+                    trace=json.dumps(trace_data) if trace_data else None,
+                    stack_trace=stack_trace,
+                    retry_count=retry_count
                 )
                 session.add(log_entry)
                 await session.commit()

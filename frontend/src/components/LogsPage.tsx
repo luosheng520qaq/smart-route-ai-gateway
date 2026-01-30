@@ -6,8 +6,9 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescri
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { CheckCircle2, XCircle, RefreshCw, FileText } from 'lucide-react';
-import { fetchLogs, RequestLog, TraceEvent } from '@/lib/api';
+import { Input } from "@/components/ui/input";
+import { CheckCircle2, XCircle, RefreshCw, FileText, Download, Lock } from 'lucide-react';
+import { fetchLogs, exportLogs, RequestLog, TraceEvent, LogFilters } from '@/lib/api';
 
 export function LogsPage() {
   const [logs, setLogs] = useState<RequestLog[]>([]);
@@ -15,40 +16,84 @@ export function LogsPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [authError, setAuthError] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  
+  // Filters
+  const [filters, setFilters] = useState<LogFilters>({
+    level: 'all',
+    status: 'all',
+    model: '',
+    start_date: '',
+    end_date: ''
+  });
+
   const pageSize = 50;
 
   const loadData = async () => {
     setLoading(true);
+    setAuthError(false);
     try {
-      const logsData = await fetchLogs(page, pageSize);
+      const logsData = await fetchLogs(page, pageSize, filters);
       setLogs(logsData.logs);
       setTotal(logsData.total);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load logs", error);
+      if (error.response?.status === 401) {
+          setAuthError(true);
+          setAutoRefresh(false); // Stop refreshing on auth error
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  const handleExport = async () => {
+    try {
+        const blob = await exportLogs(filters);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `logs_export_${new Date().toISOString()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    } catch (e) {
+        console.error("Export failed", e);
+    }
+  };
+
+  const saveApiKey = () => {
+      localStorage.setItem('gateway_key', apiKey);
+      setAuthError(false);
+      loadData();
+  };
+
   useEffect(() => {
     loadData();
-  }, [page]);
+  }, [page, filters]); // Reload when page or filters change
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (autoRefresh) {
+    if (autoRefresh && !authError) {
       interval = setInterval(() => {
         // Only refresh if on first page to avoid jumping
         if (page === 1) {
-            fetchLogs(1, pageSize).then(data => {
+            fetchLogs(1, pageSize, filters).then(data => {
                 setLogs(data.logs);
                 setTotal(data.total);
+            }).catch(e => {
+                if (e.response?.status === 401) {
+                    setAuthError(true);
+                    setAutoRefresh(false);
+                }
             });
         }
       }, 3000);
     }
     return () => clearInterval(interval);
-  }, [autoRefresh, page]);
+  }, [autoRefresh, page, filters, authError]);
 
   const renderMessageContent = (jsonStr: string, isResponse: boolean) => {
       try {
@@ -71,7 +116,6 @@ export function LogsPage() {
           }
 
           // Response Logic (Single message object or content/tool_calls dict)
-          // Backend now stores { content: "...", tool_calls: [...] } for response
           if (isResponse) {
                return (
                   <div className="bg-muted p-3 rounded-md text-sm">
@@ -119,25 +163,106 @@ export function LogsPage() {
     "ALL_FAILED": "全部失败"
   };
 
+  if (authError) {
+      return (
+          <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
+              <Lock className="h-16 w-16 text-muted-foreground" />
+              <h2 className="text-2xl font-bold">需要授权</h2>
+              <p className="text-muted-foreground">访问此页面需要 Gateway API Key</p>
+              <div className="flex gap-2">
+                  <Input 
+                    type="password" 
+                    placeholder="输入 API Key" 
+                    value={apiKey} 
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="w-[300px]"
+                  />
+                  <Button onClick={saveApiKey}>确认</Button>
+              </div>
+          </div>
+      );
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-20">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">实时日志</h2>
-          <p className="text-muted-foreground">查看所有请求的详细记录和调试信息。</p>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0">
+            <div>
+            <h2 className="text-3xl font-bold tracking-tight">实时日志</h2>
+            <p className="text-muted-foreground">查看所有请求的详细记录和调试信息。</p>
+            </div>
+            <div className="flex items-center gap-4">
+            <div className="flex items-center space-x-2">
+                <Switch 
+                id="auto-refresh" 
+                checked={autoRefresh} 
+                onCheckedChange={setAutoRefresh}
+                />
+                <Label htmlFor="auto-refresh">自动刷新</Label>
+            </div>
+            <Button variant="outline" onClick={handleExport} className="gap-2">
+                <Download className="h-4 w-4" /> 导出
+            </Button>
+            <Button onClick={loadData} disabled={loading} className="gap-2">
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> 刷新
+            </Button>
+            </div>
         </div>
-        <div className="flex items-center gap-4">
-           <div className="flex items-center space-x-2">
-            <Switch 
-              id="auto-refresh" 
-              checked={autoRefresh} 
-              onCheckedChange={setAutoRefresh}
-            />
-            <Label htmlFor="auto-refresh">自动刷新</Label>
-          </div>
-          <Button onClick={loadData} disabled={loading} className="gap-2">
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> 刷新
-          </Button>
+
+        {/* Filter Bar */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-muted/30 p-4 rounded-lg border">
+            <div className="space-y-1">
+                <Label className="text-xs">级别 (Level)</Label>
+                <select 
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={filters.level || 'all'}
+                    onChange={(e) => setFilters({...filters, level: e.target.value})}
+                >
+                    <option value="all">全部</option>
+                    <option value="t1">T1</option>
+                    <option value="t2">T2</option>
+                    <option value="t3">T3</option>
+                </select>
+            </div>
+            <div className="space-y-1">
+                <Label className="text-xs">状态 (Status)</Label>
+                <select 
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={filters.status || 'all'}
+                    onChange={(e) => setFilters({...filters, status: e.target.value})}
+                >
+                    <option value="all">全部</option>
+                    <option value="success">成功</option>
+                    <option value="error">失败</option>
+                </select>
+            </div>
+            <div className="space-y-1">
+                <Label className="text-xs">模型 (Model)</Label>
+                <Input 
+                    className="h-9" 
+                    placeholder="Search model..." 
+                    value={filters.model || ''}
+                    onChange={(e) => setFilters({...filters, model: e.target.value})}
+                />
+            </div>
+            <div className="space-y-1">
+                <Label className="text-xs">开始时间</Label>
+                <Input 
+                    type="datetime-local" 
+                    className="h-9"
+                    value={filters.start_date || ''}
+                    onChange={(e) => setFilters({...filters, start_date: e.target.value})}
+                />
+            </div>
+            <div className="space-y-1">
+                <Label className="text-xs">结束时间</Label>
+                <Input 
+                    type="datetime-local" 
+                    className="h-9"
+                    value={filters.end_date || ''}
+                    onChange={(e) => setFilters({...filters, end_date: e.target.value})}
+                />
+            </div>
         </div>
       </div>
 
@@ -213,7 +338,22 @@ export function LogsPage() {
                            <div>
                               <span className="text-muted-foreground">状态:</span> {log.status}
                           </div>
+                          {log.retry_count !== undefined && (
+                              <div>
+                                  <span className="text-muted-foreground">重试次数:</span> {log.retry_count}
+                              </div>
+                          )}
                        </div>
+
+                      {/* Stack Trace for Errors */}
+                      {log.stack_trace && (
+                          <div className="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-md">
+                              <h4 className="text-sm font-bold text-red-700 mb-2">错误堆栈</h4>
+                              <pre className="text-xs text-red-600 font-mono whitespace-pre-wrap overflow-x-auto">
+                                  {log.stack_trace}
+                              </pre>
+                          </div>
+                      )}
 
                       {/* Trace Timeline */}
                       {log.trace && (

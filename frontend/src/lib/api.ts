@@ -9,6 +9,15 @@ export const api = axios.create({
   },
 });
 
+// Add Auth Interceptor
+api.interceptors.request.use((config) => {
+  const key = localStorage.getItem('gateway_key');
+  if (key) {
+    config.headers.Authorization = `Bearer ${key}`;
+  }
+  return config;
+});
+
 export interface RouterConfig {
   enabled: boolean;
   model: string;
@@ -56,6 +65,8 @@ export interface RequestLog {
   full_request: string;
   full_response: string;
   trace?: string; // JSON string of TraceEvent[]
+  stack_trace?: string;
+  retry_count?: number;
 }
 
 export interface TraceEvent {
@@ -86,8 +97,40 @@ export const updateConfig = async (config: AppConfig) => {
   return response.data;
 };
 
-export const fetchLogs = async (page = 1, pageSize = 20) => {
-  const response = await api.get<{ logs: RequestLog[]; total: number; page: number }>(`/api/logs?page=${page}&page_size=${pageSize}`);
+export interface LogFilters {
+  level?: string;
+  status?: string;
+  model?: string;
+  start_date?: string;
+  end_date?: string;
+}
+
+export const fetchLogs = async (page = 1, pageSize = 20, filters: LogFilters = {}) => {
+  const params = new URLSearchParams();
+  params.append('page', page.toString());
+  params.append('page_size', pageSize.toString());
+  
+  if (filters.level && filters.level !== 'all') params.append('level', filters.level);
+  if (filters.status && filters.status !== 'all') params.append('status', filters.status);
+  if (filters.model) params.append('model', filters.model);
+  if (filters.start_date) params.append('start_date', filters.start_date);
+  if (filters.end_date) params.append('end_date', filters.end_date);
+  
+  const response = await api.get<{ logs: RequestLog[]; total: number; page: number }>(`/api/logs?${params.toString()}`);
+  return response.data;
+};
+
+export const exportLogs = async (filters: LogFilters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.level && filters.level !== 'all') params.append('level', filters.level);
+  if (filters.status && filters.status !== 'all') params.append('status', filters.status);
+  if (filters.model) params.append('model', filters.model);
+  if (filters.start_date) params.append('start_date', filters.start_date);
+  if (filters.end_date) params.append('end_date', filters.end_date);
+  
+  const response = await api.get(`/api/logs/export?${params.toString()}`, {
+    responseType: 'blob',
+  });
   return response.data;
 };
 
