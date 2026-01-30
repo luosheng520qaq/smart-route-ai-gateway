@@ -465,13 +465,24 @@ class RouterEngine:
         # Use user-configured timeout for the stream continuity
         stream_timeout = stream_timeout_ms / 1000.0
         
-        async with httpx.AsyncClient(timeout=stream_timeout) as client:
+        # Configure granular timeouts
+        # connect: fail fast if upstream is unreachable (capped at TTFT timeout)
+        # read: allow long generation (capped at Stream timeout)
+        timeout_config = httpx.Timeout(
+            connect=timeout_sec,
+            read=stream_timeout,
+            write=stream_timeout,
+            pool=stream_timeout
+        )
+        
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
             try:
                 # Manually manage the stream context to decouple TTFT timeout from Body timeout
                 ctx = client.stream("POST", f"{base_url}/chat/completions", json=payload, headers=headers)
                 
                 try:
                     # Enforce TTFT (Wait for Headers)
+                    # Note: httpx connect timeout will trigger first/simultaneously if connection fails
                     response = await asyncio.wait_for(ctx.__aenter__(), timeout=timeout_sec)
                 except asyncio.TimeoutError:
                     raise Exception(f"TTFT Timeout (Headers) > {timeout_sec}s")
@@ -491,8 +502,12 @@ class RouterEngine:
                 try:
                     # 1. Check Status Code Failover
                     if response.status_code != 200:
-                        error_text = await response.aread()
-                        error_str = error_text.decode()
+                        try:
+                            error_text = await asyncio.wait_for(response.aread(), timeout=10.0)
+                        except asyncio.TimeoutError:
+                            error_text = b"Error body read timed out"
+                            
+                        error_str = error_text.decode(errors='replace')
                         
                         should_retry = False
                         if response.status_code in config.retry_config.status_codes:
