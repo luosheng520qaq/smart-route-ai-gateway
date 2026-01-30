@@ -317,15 +317,15 @@ export function LogsPage() {
                       </TableCell>
                     </TableRow>
                   </SheetTrigger>
-                  <SheetContent className="w-[800px] sm:w-[600px] overflow-y-auto">
+                  <SheetContent className="w-full sm:w-[600px] overflow-y-auto max-w-[100vw]">
                     <SheetHeader>
-                      <SheetTitle>请求详情 #{log.id}</SheetTitle>
-                      <SheetDescription>
+                      <SheetTitle className="text-left">请求详情 #{log.id}</SheetTitle>
+                      <SheetDescription className="text-left">
                          {new Date(log.timestamp.endsWith('Z') ? log.timestamp : log.timestamp + 'Z').toLocaleString()}
                       </SheetDescription>
                     </SheetHeader>
                     <div className="mt-6 space-y-6">
-                       <div className="grid grid-cols-2 gap-4 text-sm">
+                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                           <div>
                               <span className="text-muted-foreground">等级:</span> {log.level}
                           </div>
@@ -347,11 +347,13 @@ export function LogsPage() {
 
                       {/* Stack Trace for Errors */}
                       {log.stack_trace && (
-                          <div className="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-md">
+                          <div className="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-md overflow-hidden">
                               <h4 className="text-sm font-bold text-red-700 mb-2">错误堆栈</h4>
-                              <pre className="text-xs text-red-600 font-mono whitespace-pre-wrap overflow-x-auto">
-                                  {log.stack_trace}
-                              </pre>
+                              <div className="overflow-x-auto">
+                                <pre className="text-xs text-red-600 font-mono whitespace-pre-wrap break-all sm:break-normal sm:whitespace-pre-wrap">
+                                    {log.stack_trace}
+                                </pre>
+                              </div>
                           </div>
                       )}
 
@@ -359,7 +361,7 @@ export function LogsPage() {
                       {log.trace && (
                         <div>
                           <h4 className="text-sm font-medium mb-2">调用链路追踪 (Trace)</h4>
-                          <div className="border rounded-md p-4 space-y-4">
+                          <div className="border rounded-md p-4 space-y-4 overflow-hidden">
                             {(() => {
                               try {
                                 const trace: TraceEvent[] = JSON.parse(log.trace);
@@ -368,34 +370,34 @@ export function LogsPage() {
                                     {i < trace.length - 1 && (
                                       <div className="absolute left-[9px] top-6 bottom-[-16px] w-[1px] bg-border" />
                                     )}
-                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] z-10 
+                                    <div className={`w-5 h-5 min-w-[1.25rem] rounded-full flex items-center justify-center text-[10px] z-10 
                                       ${event.status === 'success' ? 'bg-green-100 text-green-700' : event.status === 'fail' ? 'bg-red-100 text-red-700' : 'bg-slate-100'}`}>
                                       {i + 1}
                                     </div>
-                                    <div className="flex-1">
-                                      <div className="flex justify-between items-center">
-                                        <div className="flex flex-col">
-                                            <span className="font-medium">{TRACE_STAGE_MAP[event.stage] || event.stage}</span>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex justify-between items-start sm:items-center flex-col sm:flex-row gap-1 sm:gap-0">
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="font-medium truncate">{TRACE_STAGE_MAP[event.stage] || event.stage}</span>
                                             {event.model && (
-                                                <span className="text-[10px] text-muted-foreground font-mono">
+                                                <span className="text-[10px] text-muted-foreground font-mono truncate">
                                                     {event.model}
                                                 </span>
                                             )}
                                             {event.reason && (
-                                                <span className="text-[10px] text-red-500 font-mono mt-0.5">
+                                                <span className="text-[10px] text-red-500 font-mono mt-0.5 break-words">
                                                     {event.reason}
                                                 </span>
                                             )}
                                         </div>
-                                        <span className="text-xs text-muted-foreground font-mono">
+                                        <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
                                           {["REQ_RECEIVED", "ROUTER_START", "MODEL_CALL_START"].includes(event.stage) ? '' : '+'}
                                           {event.duration_ms.toFixed(0)}ms
                                         </span>
                                       </div>
-                                      <div className="text-xs text-muted-foreground flex gap-2">
+                                      <div className="text-xs text-muted-foreground flex gap-2 mt-1 sm:mt-0">
                                         <span>{new Date(event.timestamp * 1000).toLocaleTimeString()}</span>
                                         {event.retry_count > 0 && (
-                                          <span className="text-orange-500">Retry #{event.retry_count}</span>
+                                          <span className="text-orange-500 whitespace-nowrap">Retry #{event.retry_count}</span>
                                         )}
                                       </div>
                                     </div>
