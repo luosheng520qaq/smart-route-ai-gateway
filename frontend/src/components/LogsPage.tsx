@@ -130,14 +130,70 @@ export function LogsPage() {
           if (Array.isArray(data)) {
               return (
                   <div className="space-y-4">
-                      {data.map((msg, idx) => (
-                          <div key={idx} className="bg-muted p-3 rounded-md text-sm">
-                              <div className="font-semibold mb-1 text-xs text-muted-foreground uppercase">
-                                  【{msg.role === 'user' ? '用户' : msg.role === 'system' ? '系统' : msg.role === 'assistant' ? '助手' : msg.role === 'tool' ? '工具' : msg.role}】
+                      {data.map((msg, idx) => {
+                          if (msg.role === 'tool') {
+                              let formattedContent = msg.content;
+                              let toolName = (msg as any).name || (msg as any).tool_call_id;
+                              
+                              try {
+                                  if (typeof msg.content === 'string') {
+                                      formattedContent = JSON.stringify(JSON.parse(msg.content), null, 2);
+                                  }
+                              } catch (e) {}
+
+                              return (
+                                  <div key={idx} className="bg-muted p-3 rounded-md text-sm">
+                                      <div className="font-semibold mb-1 text-xs text-muted-foreground uppercase flex justify-between items-center">
+                                          <span>【工具返回】</span>
+                                          {toolName && <span className="font-mono text-[10px] opacity-70">{toolName}</span>}
+                                      </div>
+                                      
+                                      <div className="mt-2 pl-2 border-l-2 border-blue-500/50">
+                                          <div className="text-xs font-medium mb-1 text-blue-600">🔙 执行结果:</div>
+                                          <div className="font-mono text-xs bg-background p-2 rounded border overflow-auto max-h-[300px]">
+                                              <div className="text-foreground break-all whitespace-pre-wrap">
+                                                  {typeof formattedContent === 'string' ? formattedContent : JSON.stringify(formattedContent, null, 2)}
+                                              </div>
+                                          </div>
+                                      </div>
+                                  </div>
+                              );
+                          }
+
+                          // Try to parse tool output if it's JSON
+                          let contentDisplay = msg.content;
+                          if (msg.role === 'tool' && typeof msg.content === 'string') {
+                              try {
+                                  // Skip if we already handled it above
+                              } catch (e) {
+                                  // Not JSON, keep as is
+                              }
+                          }
+
+                          return (
+                              <div key={idx} className="bg-muted p-3 rounded-md text-sm">
+                                  <div className="font-semibold mb-1 text-xs text-muted-foreground uppercase">
+                                      【{msg.role === 'user' ? '用户' : msg.role === 'system' ? '系统' : msg.role === 'assistant' ? '助手' : msg.role === 'tool' ? '工具' : msg.role}】
+                                  </div>
+                                  <div className="whitespace-pre-wrap break-words">
+                                      {typeof contentDisplay === 'string' ? contentDisplay : contentDisplay}
+                                  </div>
+                                  
+                                  {/* Handle Tool Calls in Request History (Assistant Role) */}
+                                  {msg.tool_calls && Array.isArray(msg.tool_calls) && (
+                                      <div className="mt-2 pl-2 border-l-2 border-primary/50">
+                                          <div className="text-xs font-medium mb-1 text-primary">🛠️ 工具调用:</div>
+                                          {msg.tool_calls.map((tc: any, i: number) => (
+                                              <div key={i} className="font-mono text-xs bg-background p-2 rounded border mb-1">
+                                                  <div className="font-bold text-primary">{tc.function?.name || 'unknown'}</div>
+                                                  <div className="text-muted-foreground break-all">{tc.function?.arguments}</div>
+                                              </div>
+                                          ))}
+                                      </div>
+                                  )}
                               </div>
-                              <div className="whitespace-pre-wrap break-words">{msg.content}</div>
-                          </div>
-                      ))}
+                          );
+                      })}
                   </div>
               );
           }
