@@ -6,6 +6,12 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescri
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
+import { CalendarIcon } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { CheckCircle2, XCircle, RefreshCw, FileText, Download, Lock } from 'lucide-react';
 import { fetchLogs, exportLogs, RequestLog, TraceEvent, LogFilters } from '@/lib/api';
@@ -27,6 +33,27 @@ export function LogsPage() {
     start_date: '',
     end_date: ''
   });
+  
+  // Date State Helper
+  const [startDate, setStartDate] = useState<Date | undefined>();
+  const [endDate, setEndDate] = useState<Date | undefined>();
+
+  // Sync Date State to Filters
+  useEffect(() => {
+      if (startDate) {
+          setFilters(prev => ({ ...prev, start_date: startDate.toISOString() }));
+      } else {
+          setFilters(prev => ({ ...prev, start_date: '' }));
+      }
+  }, [startDate]);
+
+  useEffect(() => {
+      if (endDate) {
+          setFilters(prev => ({ ...prev, end_date: endDate.toISOString() }));
+      } else {
+          setFilters(prev => ({ ...prev, end_date: '' }));
+      }
+  }, [endDate]);
 
   const pageSize = 50;
 
@@ -213,28 +240,36 @@ export function LogsPage() {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-muted/30 p-4 rounded-lg border">
             <div className="space-y-1">
                 <Label className="text-xs">级别 (Level)</Label>
-                <select 
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                <Select
                     value={filters.level || 'all'}
-                    onChange={(e) => setFilters({...filters, level: e.target.value})}
+                    onValueChange={(value) => setFilters({...filters, level: value})}
                 >
-                    <option value="all">全部</option>
-                    <option value="t1">T1</option>
-                    <option value="t2">T2</option>
-                    <option value="t3">T3</option>
-                </select>
+                    <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Select level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">全部</SelectItem>
+                        <SelectItem value="t1">T1</SelectItem>
+                        <SelectItem value="t2">T2</SelectItem>
+                        <SelectItem value="t3">T3</SelectItem>
+                    </SelectContent>
+                </Select>
             </div>
             <div className="space-y-1">
                 <Label className="text-xs">状态 (Status)</Label>
-                <select 
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                <Select
                     value={filters.status || 'all'}
-                    onChange={(e) => setFilters({...filters, status: e.target.value})}
+                    onValueChange={(value) => setFilters({...filters, status: value})}
                 >
-                    <option value="all">全部</option>
-                    <option value="success">成功</option>
-                    <option value="error">失败</option>
-                </select>
+                    <SelectTrigger className="h-9">
+                        <SelectValue placeholder="选择状态" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">全部</SelectItem>
+                        <SelectItem value="success">成功</SelectItem>
+                        <SelectItem value="error">失败</SelectItem>
+                    </SelectContent>
+                </Select>
             </div>
             <div className="space-y-1">
                 <Label className="text-xs">模型 (Model)</Label>
@@ -247,21 +282,53 @@ export function LogsPage() {
             </div>
             <div className="space-y-1">
                 <Label className="text-xs">开始时间</Label>
-                <Input 
-                    type="datetime-local" 
-                    className="h-9"
-                    value={filters.start_date || ''}
-                    onChange={(e) => setFilters({...filters, start_date: e.target.value})}
-                />
+                <Popover>
+                    <PopoverTrigger asChild>
+                        <Button
+                            variant={"outline"}
+                            className={cn(
+                                "h-9 w-full justify-start text-left font-normal",
+                                !startDate && "text-muted-foreground"
+                            )}
+                        >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {startDate ? format(startDate, "PPP") : <span>Pick a date</span>}
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                            mode="single"
+                            selected={startDate}
+                            onSelect={setStartDate}
+                            initialFocus
+                        />
+                    </PopoverContent>
+                </Popover>
             </div>
             <div className="space-y-1">
                 <Label className="text-xs">结束时间</Label>
-                <Input 
-                    type="datetime-local" 
-                    className="h-9"
-                    value={filters.end_date || ''}
-                    onChange={(e) => setFilters({...filters, end_date: e.target.value})}
-                />
+                <Popover>
+                    <PopoverTrigger asChild>
+                        <Button
+                            variant={"outline"}
+                            className={cn(
+                                "h-9 w-full justify-start text-left font-normal",
+                                !endDate && "text-muted-foreground"
+                            )}
+                        >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {endDate ? format(endDate, "PPP") : <span>Pick a date</span>}
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                            mode="single"
+                            selected={endDate}
+                            onSelect={setEndDate}
+                            initialFocus
+                        />
+                    </PopoverContent>
+                </Popover>
             </div>
         </div>
       </div>

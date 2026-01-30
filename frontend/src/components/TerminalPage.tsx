@@ -101,18 +101,35 @@ export function TerminalPage() {
         bufferRef.current.shift();
       }
 
-      // Write to terminal
-      // Add simple colorizing based on status
-      let coloredMsg = msg;
-      if (msg.includes('| success')) {
-        coloredMsg = msg.replace('| success', '|\x1b[32m success \x1b[0m');
-      } else if (msg.includes('| fail') || msg.includes('error')) {
-        coloredMsg = msg.replace('| fail', '|\x1b[31m fail \x1b[0m').replace('error', '\x1b[31merror\x1b[0m');
-      } else if (msg.includes('| retry')) {
-         coloredMsg = msg.replace('| retry', '|\x1b[33m retry \x1b[0m');
+      // Format message for CMD-like appearance
+      // Add timestamp if missing
+      let displayMsg = msg;
+      if (!msg.startsWith('[')) {
+          const timestamp = new Date().toLocaleTimeString();
+          displayMsg = `[${timestamp}] ${msg}`;
       }
 
-      xtermRef.current?.writeln(coloredMsg);
+      // Enhanced Colorizing for CMD style
+      // Green for success/info, Red for errors, Yellow for warnings/retries, Cyan for system info
+      if (displayMsg.includes('| success')) {
+        displayMsg = displayMsg.replace('| success', '|\x1b[32m success \x1b[0m');
+      } else if (displayMsg.includes('| fail') || displayMsg.includes('error') || displayMsg.includes('Error') || displayMsg.includes('Exception')) {
+        displayMsg = displayMsg.replace(/(\| fail|error|Error|Exception)/g, (match: string) => `\x1b[31m${match}\x1b[0m`);
+      } else if (displayMsg.includes('| retry') || displayMsg.includes('warning') || displayMsg.includes('Warning')) {
+         displayMsg = displayMsg.replace(/(\| retry|warning|Warning)/g, (match: string) => `\x1b[33m${match}\x1b[0m`);
+      } else if (displayMsg.includes('[System]')) {
+         displayMsg = displayMsg.replace('[System]', '\x1b[36m[System]\x1b[0m');
+      }
+      
+      // Highlight specific keywords like REQ_RECEIVED, MODEL_CALL_START etc
+      const keywords = ["REQ_RECEIVED", "ROUTER_START", "ROUTER_END", "MODEL_CALL_START", "FIRST_TOKEN", "FULL_RESPONSE", "ALL_FAILED"];
+      keywords.forEach(k => {
+          if (displayMsg.includes(k)) {
+              displayMsg = displayMsg.replace(k, `\x1b[1;36m${k}\x1b[0m`);
+          }
+      });
+
+      xtermRef.current?.writeln(displayMsg);
     };
     
     wsRef.current = ws;
