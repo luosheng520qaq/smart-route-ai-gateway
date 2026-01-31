@@ -577,11 +577,11 @@ class RouterEngine:
                         
                         if should_retry:
                             if keyword_match:
-                                raise Exception(f"Error Keyword Match: {keyword_match} in {error_str[:100]}")
+                                raise Exception(f"Error Keyword Match: {keyword_match} in {error_str[:1000]}")
                             else:
-                                raise Exception(f"Status Code Error: {response.status_code} - {error_str[:100]}")
+                                raise Exception(f"Status Code Error: {response.status_code} - {error_str[:1000]}")
                         else:
-                            raise Exception(f"Upstream Error: {response.status_code} - {error_str[:100]}")
+                            raise Exception(f"Upstream Error: {response.status_code} - {error_str[:1000]}")
 
                     # Aggregate Stream
                     aggregated_content = ""
