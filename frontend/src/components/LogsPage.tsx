@@ -16,6 +16,34 @@ import { Input } from "@/components/ui/input";
 import { CheckCircle2, XCircle, RefreshCw, FileText, Download, Lock } from 'lucide-react';
 import { fetchLogs, exportLogs, RequestLog, TraceEvent, LogFilters } from '@/lib/api';
 
+// Helper to safely parse reason JSON
+const renderTraceReason = (reason: string) => {
+    // Check if reason contains JSON (e.g. "Upstream Error: 400 - {"error": ...}")
+    const jsonMatch = reason.match(/(\{.*\})/);
+    if (jsonMatch) {
+        try {
+            const jsonStr = jsonMatch[1];
+            const prefix = reason.substring(0, jsonMatch.index).trim().replace(/-$/, '').trim();
+            const jsonObj = JSON.parse(jsonStr);
+            
+            return (
+                <div className="mt-1">
+                    <span className="text-[10px] text-red-500 font-mono block mb-1">{prefix}</span>
+                    <div className="bg-red-50/50 border border-red-100 rounded p-2 text-[10px] font-mono overflow-x-auto">
+                        <pre className="whitespace-pre-wrap text-red-600">
+                            {JSON.stringify(jsonObj, null, 2)}
+                        </pre>
+                    </div>
+                </div>
+            );
+        } catch (e) {
+            // Parse failed, return original
+            return <span className="text-[10px] text-red-500 font-mono mt-0.5 break-words">{reason}</span>;
+        }
+    }
+    return <span className="text-[10px] text-red-500 font-mono mt-0.5 break-words">{reason}</span>;
+};
+
 export function LogsPage() {
   const [logs, setLogs] = useState<RequestLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -522,11 +550,7 @@ export function LogsPage() {
                                                     {event.model}
                                                 </span>
                                             )}
-                                            {event.reason && (
-                                                <span className="text-[10px] text-red-500 font-mono mt-0.5 break-words">
-                                                    {event.reason}
-                                                </span>
-                                            )}
+                                            {event.reason && renderTraceReason(event.reason)}
                                         </div>
                                         <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
                                           {["REQ_RECEIVED", "ROUTER_START", "MODEL_CALL_START"].includes(event.stage) ? '' : '+'}
