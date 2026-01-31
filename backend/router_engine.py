@@ -47,7 +47,7 @@ class ChatCompletionRequest(BaseModel):
 
 class RouterEngine:
     _client: Optional[httpx.AsyncClient] = None
-    _model_stats: Dict[str, Dict[str, int]] = {} # { "model_id": { "failures": 0, "success": 0 } }
+    _model_stats: Dict[str, Dict[str, Any]] = {} # { "model_id": { "failures": 0.0, "success": 0, "last_updated": timestamp } }
     _stats_file: str = "model_stats.json"
     _tokenizer = None
 
@@ -139,25 +139,60 @@ class RouterEngine:
         except Exception as e:
             logger.error(f"Failed to save model stats: {e}")
 
-    def _get_model_stats(self, model_id: str) -> Dict[str, int]:
+    def _get_model_stats(self, model_id: str) -> Dict[str, Any]:
         if model_id not in self._model_stats:
-            self._model_stats[model_id] = {"failures": 0, "success": 0}
-        return self._model_stats[model_id]
+            self._model_stats[model_id] = {"failures": 0.0, "success": 0, "last_updated": time.time()}
+        
+        # Backward compatibility for existing stats
+        stats = self._model_stats[model_id]
+        if "last_updated" not in stats:
+            stats["last_updated"] = time.time()
+            
+        return stats
+
+    def _refresh_stats(self, model_id: str):
+        """Apply time-based decay to failure count to allow automatic recovery."""
+        stats = self._get_model_stats(model_id)
+        now = time.time()
+        last_updated = stats.get("last_updated", now)
+        
+        # Decay Configuration
+        # Recover 0.2 points per minute (1 full error recovered in 5 mins)
+        DECAY_RATE_PER_MIN = 0.2
+        
+        elapsed_min = (now - last_updated) / 60.0
+        
+        if elapsed_min > 0.1: # Only update if meaningful time passed (>6s)
+            decay_amount = elapsed_min * DECAY_RATE_PER_MIN
+            if stats["failures"] > 0:
+                stats["failures"] = max(0.0, stats["failures"] - decay_amount)
+            
+            stats["last_updated"] = now
 
     def _record_success(self, model_id: str):
+        self._refresh_stats(model_id) # Apply decay first
         stats = self._get_model_stats(model_id)
         stats["success"] += 1
-        # Optional: Decay failure count on success to allow recovery
+        
+        # Significant bonus on success: reduce failure score by 2.0
+        # This helps a model that was previously failing to quickly regain trust
         if stats["failures"] > 0:
-            stats["failures"] = max(0, stats["failures"] - 1)
+            stats["failures"] = max(0.0, stats["failures"] - 2.0)
+            
+        stats["last_updated"] = time.time()
         self._save_stats() # Persist on change (optimize frequency if high traffic)
 
-    def _record_failure(self, model_id: str):
+    def _record_failure(self, model_id: str, penalty: float = 1.0):
+        self._refresh_stats(model_id) # Apply decay first
         stats = self._get_model_stats(model_id)
-        stats["failures"] += 1
+        stats["failures"] += penalty
+        stats["last_updated"] = time.time()
         self._save_stats() # Persist on change
 
-    def get_all_stats(self) -> Dict[str, Dict[str, int]]:
+    def get_all_stats(self) -> Dict[str, Dict[str, Any]]:
+        # Refresh all stats before returning to UI
+        for m in list(self._model_stats.keys()):
+            self._refresh_stats(m)
         return self._model_stats
 
     def cleanup_stats(self):
@@ -175,7 +210,7 @@ class RouterEngine:
         # Also ensure new models are initialized
         for m in current_models:
             if m and m not in self._model_stats:
-                self._model_stats[m] = {"failures": 0, "success": 0}
+                self._model_stats[m] = {"failures": 0.0, "success": 0, "last_updated": time.time()}
         
         self._save_stats() # Persist after cleanup
 
@@ -202,8 +237,11 @@ class RouterEngine:
             
             scored_models = []
             for m in models:
+                # Refresh stats first to apply time decay
+                self._refresh_stats(m)
                 stats = self._get_model_stats(m)
-                weight = 1.0 / (1.0 + stats["failures"] * 0.2)
+                
+                weight = 1.0 / (1.0 + stats["failures"] * 0.5) # Increased sensitivity slightly (0.2 -> 0.5) since failures decay now
                 
                 # Probabilistic score: higher weight increases chance of higher score
                 score = random.random() * weight
@@ -512,36 +550,53 @@ class RouterEngine:
                     # Extract Reason from Exception
                     error_msg = str(e)
                     reason = "Unknown Error"
+                    penalty = 1.0 # Default penalty
+                    
                     if "TTFT Timeout" in error_msg:
                         reason = "超首token限制时长"
+                        penalty = 0.5 # Timeout is often transient
                     elif "Total Timeout" in error_msg:
                         reason = "超总限制时长"
+                        penalty = 0.5
                     elif "Status Code Error" in error_msg:
                          # Extract code?
                          reason = "触发错误状态码"
                          if ":" in error_msg:
-                             reason += f": {error_msg.split(':')[1].strip()}"
+                             code_part = error_msg.split(':')[1].strip()
+                             reason += f": {code_part}"
+                             # Adjust penalty based on code
+                             if "429" in code_part:
+                                 penalty = 0.2 # Rate limit - minor penalty
+                             elif "401" in code_part or "403" in code_part:
+                                 penalty = 5.0 # Auth error - heavy penalty
+                             elif code_part.strip().startswith("5"):
+                                 penalty = 1.0 # Server error
                     elif "Error Keyword Match" in error_msg:
                          reason = "错误关键词"
                          if ":" in error_msg:
                              reason += f": {error_msg.split(':')[1].strip()}"
+                         penalty = 1.0
                     elif "Empty Response" in error_msg:
                         reason = "空返回"
+                        penalty = 1.0
                     elif "Connect Timeout" in error_msg:
                         reason = "连接超时"
+                        penalty = 0.5
                     elif "Upstream Error" in error_msg:
                          reason = "上游错误"
                          if ":" in error_msg:
                              # Keep more context for tooltip
                              reason += f": {error_msg.split(':', 1)[1].strip()}"
+                         penalty = 1.0
                     else:
                         reason = error_msg[:500] # Increased limit from 50 to 500
+                        penalty = 1.0
 
                     trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count)
                     add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=display_model_name, reason=reason)
                     
-                    # Record Failure for Adaptive Routing
-                    self._record_failure(model_id_entry)
+                    # Record Failure for Adaptive Routing with calculated penalty
+                    self._record_failure(model_id_entry, penalty=penalty)
 
                     logger.error(f"Model {display_model_name} failed (Round {round_idx + 1}): {e}")
                     last_error = e
