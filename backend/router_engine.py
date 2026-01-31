@@ -6,6 +6,7 @@ import logging
 import random
 import uuid
 import traceback
+import os
 from typing import List, Dict, Any, Optional, Union
 from fastapi import HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -42,6 +43,7 @@ class ChatCompletionRequest(BaseModel):
 class RouterEngine:
     _client: Optional[httpx.AsyncClient] = None
     _model_stats: Dict[str, Dict[str, int]] = {} # { "model_id": { "failures": 0, "success": 0 } }
+    _stats_file: str = "model_stats.json"
 
     async def startup(self):
         """Initialize global HTTP client and model stats"""
@@ -51,7 +53,10 @@ class RouterEngine:
             self._client = httpx.AsyncClient(limits=limits)
             logger.info("Global HTTP Client initialized")
         
-        # Pre-populate stats for all configured models
+        # Load stats from disk
+        self._load_stats()
+        
+        # Pre-populate stats for all configured models (if not in file)
         config = config_manager.get_config()
         all_models = set(config.t1_models + config.t2_models + config.t3_models)
         for m in all_models:
@@ -64,6 +69,26 @@ class RouterEngine:
             await self._client.aclose()
             self._client = None
             logger.info("Global HTTP Client closed")
+        # Save stats to disk
+        self._save_stats()
+
+    def _load_stats(self):
+        if os.path.exists(self._stats_file):
+            try:
+                with open(self._stats_file, 'r', encoding='utf-8') as f:
+                    self._model_stats = json.load(f)
+                logger.info("Model stats loaded from disk")
+            except Exception as e:
+                logger.error(f"Failed to load model stats: {e}")
+                self._model_stats = {}
+
+    def _save_stats(self):
+        try:
+            with open(self._stats_file, 'w', encoding='utf-8') as f:
+                json.dump(self._model_stats, f, indent=2)
+            logger.info("Model stats saved to disk")
+        except Exception as e:
+            logger.error(f"Failed to save model stats: {e}")
 
     def _get_model_stats(self, model_id: str) -> Dict[str, int]:
         if model_id not in self._model_stats:
@@ -76,10 +101,12 @@ class RouterEngine:
         # Optional: Decay failure count on success to allow recovery
         if stats["failures"] > 0:
             stats["failures"] = max(0, stats["failures"] - 1)
+        self._save_stats() # Persist on change (optimize frequency if high traffic)
 
     def _record_failure(self, model_id: str):
         stats = self._get_model_stats(model_id)
         stats["failures"] += 1
+        self._save_stats() # Persist on change
 
     def get_all_stats(self) -> Dict[str, Dict[str, int]]:
         return self._model_stats
@@ -100,6 +127,8 @@ class RouterEngine:
         for m in current_models:
             if m and m not in self._model_stats:
                 self._model_stats[m] = {"failures": 0, "success": 0}
+        
+        self._save_stats() # Persist after cleanup
 
     def _get_sorted_models(self, models: List[str], strategy: str) -> List[str]:
         if not models:
@@ -424,9 +453,10 @@ class RouterEngine:
                     elif "Upstream Error" in error_msg:
                          reason = "上游错误"
                          if ":" in error_msg:
-                             reason += f": {error_msg.split(':')[1].strip()}"
+                             # Keep more context for tooltip
+                             reason += f": {error_msg.split(':', 1)[1].strip()}"
                     else:
-                        reason = error_msg[:50] # Fallback to first 50 chars
+                        reason = error_msg[:500] # Increased limit from 50 to 500
 
                     trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count)
                     add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=display_model_name, reason=reason)
@@ -577,11 +607,11 @@ class RouterEngine:
                         
                         if should_retry:
                             if keyword_match:
-                                raise Exception(f"Error Keyword Match: {keyword_match} in {error_str[:1000]}")
+                                raise Exception(f"Error Keyword Match: {keyword_match} in {error_str[:500]}")
                             else:
-                                raise Exception(f"Status Code Error: {response.status_code} - {error_str[:1000]}")
+                                raise Exception(f"Status Code Error: {response.status_code} - {error_str[:500]}")
                         else:
-                            raise Exception(f"Upstream Error: {response.status_code} - {error_str[:1000]}")
+                            raise Exception(f"Upstream Error: {response.status_code} - {error_str[:500]}")
 
                     # Aggregate Stream
                     aggregated_content = ""
