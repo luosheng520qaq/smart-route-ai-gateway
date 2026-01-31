@@ -46,6 +46,7 @@ export interface AppConfig {
   upstream_base_url: string;
   upstream_api_key: string;
   gateway_api_key: string; // New field
+  routing_strategies: Record<string, string>; // New field: t1/t2/t3 -> sequential/random/adaptive
   router_config: RouterConfig;
   retry_config: RetryConfig;
   global_params: Record<string, any>;

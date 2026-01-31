@@ -63,6 +63,8 @@ class AppConfig(BaseModel):
     # New configurations
     router_config: RouterModelConfig = RouterModelConfig()
     retry_config: RetryConfig = RetryConfig()
+    # routing_strategies: key is level (t1, t2, t3), value is strategy (sequential, random, adaptive)
+    routing_strategies: Dict[str, str] = {"t1": "sequential", "t2": "sequential", "t3": "sequential"} 
     log_retention_days: int = 7 # Default keep logs for 7 days
     
     # Global and Model-specific parameter overrides

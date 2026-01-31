@@ -47,6 +47,9 @@ async def verify_gateway_key(credentials: HTTPAuthorizationCredentials = Securit
 async def lifespan(app: FastAPI):
     # Startup logic
     await init_db()
+    # Initialize Router Engine (HTTP Client)
+    await router_engine.startup()
+    
     # Prune logs on startup based on config
     try:
         config = config_manager.get_config()
@@ -56,7 +59,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[ERROR] Failed to prune logs on startup: {e}")
     yield
-    # Shutdown logic (if any)
+    # Shutdown logic
+    await router_engine.shutdown()
 
 app = FastAPI(title="SmartRoute AI Gateway", lifespan=lifespan)
 

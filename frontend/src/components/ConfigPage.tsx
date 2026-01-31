@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { Save, Plus, Trash2, GripVertical, Brain, AlertOctagon } from 'lucide-react';
 import { AppConfig, fetchConfig, updateConfig } from '@/lib/api';
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 export function ConfigPage() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -708,6 +710,32 @@ export function ConfigPage() {
                     step={1000} 
                     onValueChange={(val) => updateTimeout(level as any, val)} 
                   />
+                </div>
+
+                <div className="space-y-2">
+                   <Label>本层级路由策略 (Routing Strategy)</Label>
+                   <Select 
+                     value={config.routing_strategies?.[level] || "sequential"} 
+                     onValueChange={(val) => setConfig({
+                        ...config, 
+                        routing_strategies: {
+                            ...(config.routing_strategies || {t1: "sequential", t2: "sequential", t3: "sequential"}),
+                            [level]: val
+                        }
+                     })}
+                   >
+                     <SelectTrigger>
+                       <SelectValue placeholder="选择路由策略" />
+                     </SelectTrigger>
+                     <SelectContent>
+                       <SelectItem value="sequential">顺序模式 (Sequential)</SelectItem>
+                       <SelectItem value="random">随机模式 (Random)</SelectItem>
+                       <SelectItem value="adaptive">自适应模式 (Adaptive)</SelectItem>
+                     </SelectContent>
+                   </Select>
+                   <p className="text-xs text-muted-foreground">
+                     顺序模式按列表优先；随机模式完全随机；自适应模式根据失败率调整权重。
+                   </p>
                 </div>
 
                 <div className="space-y-4">

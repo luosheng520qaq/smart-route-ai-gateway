@@ -40,6 +40,96 @@ class ChatCompletionRequest(BaseModel):
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
 
 class RouterEngine:
+    _client: Optional[httpx.AsyncClient] = None
+    _model_stats: Dict[str, Dict[str, int]] = {} # { "model_id": { "failures": 0, "success": 0 } }
+
+    async def startup(self):
+        """Initialize global HTTP client"""
+        if self._client is None:
+            # Configure global pool limits
+            limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+            self._client = httpx.AsyncClient(limits=limits)
+            logger.info("Global HTTP Client initialized")
+
+    async def shutdown(self):
+        """Close global HTTP client"""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+            logger.info("Global HTTP Client closed")
+
+    def _get_model_stats(self, model_id: str) -> Dict[str, int]:
+        if model_id not in self._model_stats:
+            self._model_stats[model_id] = {"failures": 0, "success": 0}
+        return self._model_stats[model_id]
+
+    def _record_success(self, model_id: str):
+        stats = self._get_model_stats(model_id)
+        stats["success"] += 1
+        # Optional: Decay failure count on success to allow recovery
+        if stats["failures"] > 0:
+            stats["failures"] = max(0, stats["failures"] - 1)
+
+    def _record_failure(self, model_id: str):
+        stats = self._get_model_stats(model_id)
+        stats["failures"] += 1
+
+    def _get_sorted_models(self, models: List[str], strategy: str) -> List[str]:
+        if not models:
+            return []
+            
+        if strategy == "sequential":
+            return models
+            
+        if strategy == "random":
+            # Pure random shuffle
+            shuffled = list(models)
+            random.shuffle(shuffled)
+            return shuffled
+            
+        if strategy == "adaptive":
+            # Weighted random based on failures (Less failures = Higher weight)
+            # Weight = 1 / (1 + failures)
+            weighted_models = []
+            weights = []
+            
+            for m in models:
+                stats = self._get_model_stats(m)
+                weight = 1.0 / (1.0 + stats["failures"])
+                weighted_models.append(m)
+                weights.append(weight)
+            
+            # Weighted shuffle is complex, simplified approach:
+            # Select one by weight, remove, repeat. 
+            # Or simpler: Sort by failure count ascending (primary) and random (secondary)
+            # Let's do: Probabilistic selection without replacement
+            
+            # For simplicity and effectiveness:
+            # Sort by failure count (asc) to prioritize healthy models, 
+            # but add some randomness to equivalent scores?
+            # User asked for: "Random mode where models with more errors have lower weight"
+            # This implies they still want randomness, not strict sorting.
+            
+            # Implementation of Weighted Random Shuffle:
+            # Assign a random score * weight to each item, then sort by that score.
+            # Score = random.random() * (1 / (1 + failures))
+            # Higher score wins.
+            
+            scored_models = []
+            for m in models:
+                stats = self._get_model_stats(m)
+                weight = 1.0 / (1.0 + stats["failures"])
+                # Add small epsilon to weight to differentiate 0 failures vs others slightly if needed, 
+                # but 1/(1+0)=1 is fine.
+                score = random.random() * weight
+                scored_models.append((score, m))
+            
+            # Sort desc by score
+            scored_models.sort(key=lambda x: x[0], reverse=True)
+            return [m for _, m in scored_models]
+            
+        return models
+
     def _extract_text_from_content(self, content: Any) -> str:
         if content is None:
             return ""
@@ -86,29 +176,34 @@ class RouterEngine:
                 
                 prompt = config.router_config.prompt_template.replace("{history}", history_text)
                 
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    resp = await client.post(
-                        f"{config.router_config.base_url}/chat/completions",
-                        json={
-                            "model": config.router_config.model,
-                            "messages": [{"role": "user", "content": prompt}],
-                            "max_tokens": 10,
-                            "temperature": 0.0
-                        },
-                        headers={"Authorization": f"Bearer {config.router_config.api_key}"}
-                    )
+                # Use global client if available, else create one
+                if self._client is None: await self.startup()
+                
+                # Note: self._client has global limits, but we need specific timeout here.
+                # request-level timeout overrides client timeout.
+                resp = await self._client.post(
+                    f"{config.router_config.base_url.rstrip('/')}/chat/completions",
+                    json={
+                        "model": config.router_config.model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 10,
+                        "temperature": 0.0
+                    },
+                    headers={"Authorization": f"Bearer {config.router_config.api_key}"},
+                    timeout=5.0
+                )
                     
-                    # Log Router End
-                    end_t = time.time()
-                    duration = (end_t - start_t) * 1000
-                    if trace_callback:
-                        trace_callback("ROUTER_END", end_t, duration, "success", 0)
+            # Log Router End
+                end_t = time.time()
+                duration = (end_t - start_t) * 1000
+                if trace_callback:
+                    trace_callback("ROUTER_END", end_t, duration, "success", 0)
 
-                    if resp.status_code == 200:
-                        content = resp.json()["choices"][0]["message"]["content"].strip().upper()
-                        if "T1" in content: return "t1"
-                        if "T2" in content: return "t2"
-                        if "T3" in content: return "t3"
+                if resp.status_code == 200:
+                    content = resp.json()["choices"][0]["message"]["content"].strip().upper()
+                    if "T1" in content: return "t1"
+                    if "T2" in content: return "t2"
+                    if "T3" in content: return "t3"
             except Exception as e:
                 logger.error(f"Router Model failed: {e}. Falling back to heuristic.")
                 # If Router enabled but failed, fall through to heuristic below
@@ -193,6 +288,14 @@ class RouterEngine:
         if not models:
             raise HTTPException(status_code=500, detail=f"No models configured for level {level}")
 
+        # Apply Routing Strategy
+        strategy = config.routing_strategies.get(level, "sequential")
+        sorted_models = self._get_sorted_models(models, strategy)
+        # Log if strategy reordered them
+        if strategy != "sequential" and sorted_models != models:
+             logger.info(f"Models reordered by strategy '{strategy}' for level {level}: {sorted_models}")
+        models = sorted_models
+
         last_error = None
         last_stack_trace = None
         user_prompt = self._extract_text_from_content(request.messages[-1].get("content")) if request.messages else ""
@@ -267,6 +370,9 @@ class RouterEngine:
                     
                     response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms, trace_id, retry_count, call_start_time, add_trace_event)
                     
+                    # Record Success for Adaptive Routing
+                    self._record_success(model_id_entry)
+
                     # 3. Log: Full Response (Success)
                     end_time = time.time()
                     duration = (end_time - start_time) * 1000
@@ -313,6 +419,9 @@ class RouterEngine:
                     trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count)
                     add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=display_model_name, reason=reason)
                     
+                    # Record Failure for Adaptive Routing
+                    self._record_failure(model_id_entry)
+
                     logger.error(f"Model {display_model_name} failed (Round {round_idx + 1}): {e}")
                     last_error = e
                     last_stack_trace = traceback.format_exc()
@@ -404,21 +513,23 @@ class RouterEngine:
             pool=stream_timeout
         )
         
-        async with httpx.AsyncClient(timeout=timeout_config) as client:
+        if self._client is None: await self.startup()
+
+        try:
+            # Manually manage the stream context to decouple TTFT timeout from Body timeout
+            # Use global client with specific request timeout
+            ctx = self._client.stream("POST", f"{base_url}/chat/completions", json=payload, headers=headers, timeout=timeout_config)
+            
             try:
-                # Manually manage the stream context to decouple TTFT timeout from Body timeout
-                ctx = client.stream("POST", f"{base_url}/chat/completions", json=payload, headers=headers)
-                
-                try:
-                    # Enforce TTFT (Wait for Headers)
-                    # Note: httpx connect timeout will trigger first/simultaneously if connection fails
-                    response = await asyncio.wait_for(ctx.__aenter__(), timeout=timeout_sec)
-                except asyncio.TimeoutError:
-                    raise Exception(f"TTFT Timeout (Headers) > {timeout_sec}s")
-                except Exception:
-                    raise
-                
-                # 3. Log: First Token (Headers Received)
+                # Enforce TTFT (Wait for Headers)
+                # Note: httpx connect timeout will trigger first/simultaneously if connection fails
+                response = await asyncio.wait_for(ctx.__aenter__(), timeout=timeout_sec)
+            except asyncio.TimeoutError:
+                raise Exception(f"TTFT Timeout (Headers) > {timeout_sec}s")
+            except Exception:
+                raise
+            
+            # 3. Log: First Token (Headers Received)
                 ttft_time = time.time()
                 # Duration from "Request Received" (or "Retry Start"?) Prompt says: "Retry/FirstCall -> First Token"
                 # So we need time of THIS call start? Yes, req_start_time passed in is actually call_start_time now.
@@ -579,10 +690,10 @@ class RouterEngine:
                      # Success exit
                      await ctx.__aexit__(None, None, None)
 
-            except httpx.ReadTimeout:
-                raise Exception("Total Timeout (Read): Read timeout from upstream")
-            except httpx.ConnectTimeout:
-                raise Exception("Connect Timeout: Connect timeout to upstream")
+        except httpx.ReadTimeout:
+            raise Exception("Total Timeout (Read): Read timeout from upstream")
+        except httpx.ConnectTimeout:
+            raise Exception("Connect Timeout: Connect timeout to upstream")
 
     async def _log_request(self, level, model, duration, status, prompt, req_json, res_json, trace_data=None, stack_trace=None, retry_count=0):
         # This function is now run in background
