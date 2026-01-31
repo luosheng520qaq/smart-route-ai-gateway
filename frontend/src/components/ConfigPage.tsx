@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Save, Plus, Trash2, GripVertical, Brain, AlertOctagon } from 'lucide-react';
+import { Save, Plus, Trash2, GripVertical, Brain, AlertOctagon, HeartPulse } from 'lucide-react';
 import { AppConfig, fetchConfig, updateConfig } from '@/lib/api';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -620,6 +620,42 @@ export function ConfigPage() {
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <HeartPulse className="h-5 w-5 text-red-500" />
+            <CardTitle>健康检查与恢复 (Health Check & Recovery)</CardTitle>
+          </div>
+          <CardDescription>配置模型的自动恢复机制，防止因偶发错误导致模型被永久屏蔽。</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-4">
+            <div className="flex justify-between">
+              <Label>错误分值衰减速率 (Decay Rate)</Label>
+              <span className="text-sm text-muted-foreground">
+                {config.health_check_config?.decay_rate ?? 0.05} 分/分钟
+              </span>
+            </div>
+            <Slider 
+              value={[config.health_check_config?.decay_rate ?? 0.05]} 
+              max={1.0} 
+              step={0.05} 
+              onValueChange={(val) => setConfig({
+                ...config,
+                health_check_config: {
+                  ...config.health_check_config,
+                  decay_rate: val[0]
+                }
+              })} 
+            />
+            <p className="text-xs text-muted-foreground">
+              每分钟自动减少的失败分值。例如设置为 0.05，则 1 分的错误需要 20 分钟才能完全恢复（不考虑成功调用的回血）。
+              值越大恢复越快。
+            </p>
+          </div>
         </CardContent>
       </Card>
 

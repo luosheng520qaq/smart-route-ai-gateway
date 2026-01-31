@@ -156,14 +156,15 @@ class RouterEngine:
         now = time.time()
         last_updated = stats.get("last_updated", now)
         
-        # Decay Configuration
-        # Recover 0.2 points per minute (1 full error recovered in 5 mins)
-        DECAY_RATE_PER_MIN = 0.2
+        # Decay Configuration from ConfigManager
+        config = config_manager.get_config()
+        decay_rate = config.health_check_config.decay_rate
         
+        # Recover decay_rate points per minute
         elapsed_min = (now - last_updated) / 60.0
         
         if elapsed_min > 0.1: # Only update if meaningful time passed (>6s)
-            decay_amount = elapsed_min * DECAY_RATE_PER_MIN
+            decay_amount = elapsed_min * decay_rate
             if stats["failures"] > 0:
                 stats["failures"] = max(0.0, stats["failures"] - decay_amount)
             

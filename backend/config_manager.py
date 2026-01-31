@@ -42,6 +42,9 @@ class RetryConfig(BaseModel):
     status_codes: List[int] = [429, 500, 502, 503, 504]
     error_keywords: List[str] = ["rate limit", "quota exceeded", "overloaded", "timeout", "try again"]
 
+class HealthCheckConfig(BaseModel):
+    decay_rate: float = 0.05 # Recovery points per minute (default 0.05)
+
 class ProviderConfig(BaseModel):
     base_url: str
     api_key: str
@@ -63,6 +66,7 @@ class AppConfig(BaseModel):
     # New configurations
     router_config: RouterModelConfig = RouterModelConfig()
     retry_config: RetryConfig = RetryConfig()
+    health_check_config: HealthCheckConfig = HealthCheckConfig()
     # routing_strategies: key is level (t1, t2, t3), value is strategy (sequential, random, adaptive)
     routing_strategies: Dict[str, str] = {"t1": "sequential", "t2": "sequential", "t3": "sequential"} 
     log_retention_days: int = 7 # Default keep logs for 7 days

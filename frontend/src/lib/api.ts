@@ -31,6 +31,10 @@ export interface RetryConfig {
   error_keywords: string[];
 }
 
+export interface HealthCheckConfig {
+  decay_rate: number;
+}
+
 export interface ProviderConfig {
   base_url: string;
   api_key: string;
@@ -49,6 +53,7 @@ export interface AppConfig {
   routing_strategies: Record<string, string>; // New field: t1/t2/t3 -> sequential/random/adaptive
   router_config: RouterConfig;
   retry_config: RetryConfig;
+  health_check_config: HealthCheckConfig;
   global_params: Record<string, any>;
   model_params: Record<string, Record<string, any>>;
   providers: Record<string, ProviderConfig>;
