@@ -464,14 +464,38 @@ class RouterEngine:
                     
                     # Extract usage if available
                     token_source = "upstream"
-                    if usage_info:
-                         prompt_tokens = usage_info.get("prompt_tokens", 0)
-                         completion_tokens = usage_info.get("completion_tokens", 0)
+                    # usage_info is NOT available here because it's local to _call_upstream
+                    # We need _call_upstream to return usage info
+                    if "usage" in response_data:
+                         usage = response_data["usage"]
+                         prompt_tokens = usage.get("prompt_tokens", 0)
+                         completion_tokens = usage.get("completion_tokens", 0)
                     else:
-                         # Fallback to local calculation
+                         # Fallback to local calculation (approximate since we don't have full context here easily without re-calculating)
+                         # Actually, response_data SHOULD contain usage if _call_upstream constructed it correctly.
+                         # If response_data has usage, we use it. 
+                         # If not, we can try local calc but we need content.
                          token_source = "local"
-                         prompt_tokens = local_prompt_tokens
-                         completion_tokens = self._count_tokens(aggregated_content, model)
+                         # We don't have local_prompt_tokens here easily unless we recalc or pass it out.
+                         # Let's trust _call_upstream to populate usage in response_data.
+                         prompt_tokens = 0
+                         completion_tokens = 0
+                         
+                         # Check if usage is inside response_data
+                         if "usage" in response_data:
+                             token_source = "upstream" # Oh wait, we just checked that above.
+                             pass
+                         else:
+                             # Recalculate local tokens here if missing
+                             # Get prompt messages
+                             req_messages = request.messages
+                             prompt_tokens = self._count_messages_tokens(req_messages, model_id_entry)
+                             
+                             # Get completion content
+                             completion_content = ""
+                             if "choices" in response_data and response_data["choices"]:
+                                 completion_content = response_data["choices"][0]["message"].get("content", "")
+                             completion_tokens = self._count_tokens(completion_content, model_id_entry)
 
                     # Log success (Async via BackgroundTasks)
                     background_tasks.add_task(
@@ -674,11 +698,13 @@ class RouterEngine:
                     finish_reason = None
                     role = "assistant"
                     usage_info = None # Capture usage from stream options if available
+                    prompt_tokens = 0
+                    completion_tokens = 0
                     
                     # Pre-calculate prompt tokens locally just in case
                     # Use full messages list for accuracy, fallback to empty list
                     req_messages = payload.get("messages", [])
-                    local_prompt_tokens = self._count_messages_tokens(req_messages, model)
+                    local_prompt_tokens = self._count_messages_tokens(req_messages, model_id)
                     
                     # Fix for Kimi/Moonshot & httpx compatibility issues:
                     # Manually handle buffer and decoding instead of relying on aiter_lines()
