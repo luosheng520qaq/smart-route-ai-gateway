@@ -13,10 +13,13 @@ const formatChartDate = (isoStr: string) => {
   return `${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 };
 
+import { ChevronDown, ChevronUp } from 'lucide-react';
+
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [modelStats, setModelStats] = useState<Record<string, { failures: number; success: number }> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const loadData = async () => {
     try {
@@ -65,6 +68,8 @@ export function Dashboard() {
       };
   }).sort((a, b) => a.health - b.health); // Sort by health asc (problematic ones first)
 
+  const visibleModels = isExpanded ? modelHealthData : modelHealthData.slice(0, 3);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-700 slide-in-from-bottom-4">
       {/* Status Cards */}
@@ -104,9 +109,24 @@ export function Dashboard() {
       {/* Model Health Status */}
       <Card className="border-none shadow-sm bg-card/50">
         <CardHeader>
-            <div className="flex items-center gap-2">
-                <HeartPulse className="h-5 w-5 text-rose-500" />
-                <CardTitle>模型健康度监控 (Adaptive Health)</CardTitle>
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <HeartPulse className="h-5 w-5 text-rose-500" />
+                    <CardTitle>模型健康度监控 (Adaptive Health)</CardTitle>
+                </div>
+                {modelHealthData.length > 3 && (
+                    <Button variant="ghost" size="sm" onClick={() => setIsExpanded(!isExpanded)}>
+                        {isExpanded ? (
+                            <>
+                                <ChevronUp className="h-4 w-4 mr-1" /> 收起
+                            </>
+                        ) : (
+                            <>
+                                <ChevronDown className="h-4 w-4 mr-1" /> 展开全部 ({modelHealthData.length})
+                            </>
+                        )}
+                    </Button>
+                )}
             </div>
             <CardDescription>
                 实时监控各模型的成功/失败次数及自适应权重。权重越低，被调用的概率越小。
@@ -118,7 +138,7 @@ export function Dashboard() {
             ) : (
                 <div className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {modelHealthData.map((m) => (
+                        {visibleModels.map((m) => (
                             <div key={m.model} className="flex items-center justify-between p-3 border rounded-lg bg-background/50">
                                 <div>
                                     <div className="font-medium text-sm truncate max-w-[150px]" title={m.model}>{m.model}</div>
