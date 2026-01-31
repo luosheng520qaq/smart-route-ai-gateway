@@ -367,10 +367,15 @@ class RouterEngine:
                     end_time = time.time()
                     duration = (end_time - start_time) * 1000
                     
+                    # Extract usage if available
+                    usage = response_data.get("usage", {})
+                    prompt_tokens = usage.get("prompt_tokens", 0)
+                    completion_tokens = usage.get("completion_tokens", 0)
+
                     # Log success (Async via BackgroundTasks)
                     background_tasks.add_task(
                         self._log_request,
-                        level, display_model_name, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data), trace_events
+                        level, display_model_name, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data), trace_events, None, retry_count, prompt_tokens, completion_tokens
                     )
                     
                     return response_data
@@ -566,6 +571,7 @@ class RouterEngine:
                     aggregated_tool_calls = {} # index -> tool_call
                     finish_reason = None
                     role = "assistant"
+                    usage_info = None # Capture usage from stream options if available
                     
                     # Fix for Kimi/Moonshot & httpx compatibility issues:
                     # Manually handle buffer and decoding instead of relying on aiter_lines()
@@ -596,6 +602,9 @@ class RouterEngine:
                                     chunk_json = json.loads(data_str)
                                     choices = chunk_json.get("choices", [])
                                     if not choices:
+                                        # Check for usage field in the last chunk (OpenAI standard)
+                                        if "usage" in chunk_json:
+                                            usage_info = chunk_json["usage"]
                                         continue
                                         
                                     delta = choices[0].get("delta", {})
@@ -656,7 +665,7 @@ class RouterEngine:
                                 "finish_reason": finish_reason or "stop"
                             }
                         ],
-                        "usage": {
+                        "usage": usage_info or {
                             "prompt_tokens": 0, # Difficult to calculate without tokenizer
                             "completion_tokens": 0,
                             "total_tokens": 0
@@ -685,7 +694,7 @@ class RouterEngine:
         except httpx.ConnectTimeout:
             raise Exception("Connect Timeout: Connect timeout to upstream")
 
-    async def _log_request(self, level, model, duration, status, prompt, req_json, res_json, trace_data=None, stack_trace=None, retry_count=0):
+    async def _log_request(self, level, model, duration, status, prompt, req_json, res_json, trace_data=None, stack_trace=None, retry_count=0, prompt_tokens=0, completion_tokens=0):
         # This function is now run in background
         async with AsyncSessionLocal() as session:
             try:
@@ -738,7 +747,9 @@ class RouterEngine:
                     full_response=clean_res,
                     trace=json.dumps(trace_data) if trace_data else None,
                     stack_trace=stack_trace,
-                    retry_count=retry_count
+                    retry_count=retry_count,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens
                 )
                 session.add(log_entry)
                 await session.commit()

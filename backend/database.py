@@ -37,6 +37,8 @@ class RequestLog(Base):
     trace = Column(Text) # JSON string for timeline events
     stack_trace = Column(Text) # Error stack trace
     retry_count = Column(Integer, default=0)
+    prompt_tokens = Column(Integer, default=0)
+    completion_tokens = Column(Integer, default=0)
 
 async def init_db():
     async with engine.begin() as conn:
@@ -56,6 +58,16 @@ async def init_db():
 
         try:
             await conn.execute(text("ALTER TABLE request_logs ADD COLUMN retry_count INTEGER DEFAULT 0"))
+        except Exception:
+            pass # Already exists
+
+        try:
+            await conn.execute(text("ALTER TABLE request_logs ADD COLUMN prompt_tokens INTEGER DEFAULT 0"))
+        except Exception:
+            pass # Already exists
+
+        try:
+            await conn.execute(text("ALTER TABLE request_logs ADD COLUMN completion_tokens INTEGER DEFAULT 0"))
         except Exception:
             pass # Already exists
 

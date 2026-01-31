@@ -480,11 +480,27 @@ export function LogsPage() {
                           </div>
                       )}
 
-                      {/* Trace Timeline */}
                       {log.trace && (
-                        <div>
-                          <h4 className="text-sm font-medium mb-2">调用链路追踪 (Trace)</h4>
-                          <div className="border rounded-md p-4 space-y-4 overflow-hidden">
+                        <div className="mb-4">
+                          <h4 className="text-sm font-medium mb-2">执行追踪 (Trace)</h4>
+                          {/* Token Usage Display */}
+                          {((log.prompt_tokens ?? 0) > 0 || (log.completion_tokens ?? 0) > 0) && (
+                            <div className="flex gap-4 mb-3 p-3 bg-muted/50 rounded-lg border border-dashed">
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] text-muted-foreground uppercase">Prompt Tokens</span>
+                                    <span className="font-mono font-bold text-sky-600">{log.prompt_tokens}</span>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] text-muted-foreground uppercase">Completion Tokens</span>
+                                    <span className="font-mono font-bold text-emerald-600">{log.completion_tokens}</span>
+                                </div>
+                                <div className="flex flex-col border-l pl-4">
+                                    <span className="text-[10px] text-muted-foreground uppercase">Total</span>
+                                    <span className="font-mono font-bold text-foreground">{(log.prompt_tokens ?? 0) + (log.completion_tokens ?? 0)}</span>
+                                </div>
+                            </div>
+                          )}
+                          <div className="space-y-3 relative before:absolute before:left-[19px] before:top-2 before:bottom-2 before:w-[2px] before:bg-border">
                             {(() => {
                               try {
                                 const trace: TraceEvent[] = JSON.parse(log.trace);

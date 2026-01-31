@@ -68,6 +68,8 @@ export interface RequestLog {
   trace?: string; // JSON string of TraceEvent[]
   stack_trace?: string;
   retry_count?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
 }
 
 export interface TraceEvent {
