@@ -84,7 +84,7 @@ function SidebarContent({ activeTab, setActiveTab, closeSheet }: SidebarProps) {
       </nav>
       <div className="p-6 border-t border-white/20">
         <div className="text-xs text-slate-400 font-medium text-center glass py-3 px-4 rounded-xl shadow-sm">
-          v1.1.0
+          v1.2.0
         </div>
       </div>
     </div>
