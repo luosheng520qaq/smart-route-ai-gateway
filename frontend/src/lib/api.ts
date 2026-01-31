@@ -70,6 +70,7 @@ export interface RequestLog {
   retry_count?: number;
   prompt_tokens?: number;
   completion_tokens?: number;
+  token_source?: string;
 }
 
 export interface TraceEvent {

@@ -7,6 +7,11 @@ import random
 import uuid
 import traceback
 import os
+try:
+    import tiktoken
+except ImportError:
+    tiktoken = None
+
 from typing import List, Dict, Any, Optional, Union
 from fastapi import HTTPException, BackgroundTasks
 from pydantic import BaseModel
@@ -44,6 +49,50 @@ class RouterEngine:
     _client: Optional[httpx.AsyncClient] = None
     _model_stats: Dict[str, Dict[str, int]] = {} # { "model_id": { "failures": 0, "success": 0 } }
     _stats_file: str = "model_stats.json"
+    _tokenizer = None
+
+    def _get_tokenizer(self, model: str):
+        if self._tokenizer: return self._tokenizer
+        if tiktoken:
+            try:
+                # Try to get specific encoding, default to cl100k_base (gpt-4/3.5)
+                self._tokenizer = tiktoken.encoding_for_model(model)
+            except:
+                self._tokenizer = tiktoken.get_encoding("cl100k_base")
+        return self._tokenizer
+
+    def _count_tokens(self, text: str, model: str = "gpt-3.5-turbo") -> int:
+        if not text: return 0
+        tokenizer = self._get_tokenizer(model)
+        if tokenizer:
+            return len(tokenizer.encode(text))
+        else:
+            # Fallback: Approx 4 chars per token
+            return len(text) // 4
+
+    def _count_messages_tokens(self, messages: List[Dict[str, Any]], model: str = "gpt-3.5-turbo") -> int:
+        """
+        Count tokens for a list of messages (Chat format).
+        Follows OpenAI logic: 3 tokens overhead per message + tokens in content.
+        """
+        tokenizer = self._get_tokenizer(model)
+        if not tokenizer:
+            # Fallback: Sum chars of content + role
+            total_chars = sum(len(str(m.get("content", ""))) + len(str(m.get("role", ""))) for m in messages)
+            return total_chars // 4
+        
+        num_tokens = 0
+        for message in messages:
+            num_tokens += 3  # <|start|>{role/name}\n{content}<|end|>\n
+            for key, value in message.items():
+                if key == "content" and isinstance(value, str):
+                    num_tokens += len(tokenizer.encode(value))
+                elif key == "name":
+                    num_tokens += 1
+                # Ignore other keys or handle multimodal content later
+        
+        num_tokens += 3  # <|start|>assistant<|message|>
+        return num_tokens
 
     async def startup(self):
         """Initialize global HTTP client and model stats"""
@@ -414,14 +463,20 @@ class RouterEngine:
                     duration = (end_time - start_time) * 1000
                     
                     # Extract usage if available
-                    usage = response_data.get("usage", {})
-                    prompt_tokens = usage.get("prompt_tokens", 0)
-                    completion_tokens = usage.get("completion_tokens", 0)
+                    token_source = "upstream"
+                    if usage_info:
+                         prompt_tokens = usage_info.get("prompt_tokens", 0)
+                         completion_tokens = usage_info.get("completion_tokens", 0)
+                    else:
+                         # Fallback to local calculation
+                         token_source = "local"
+                         prompt_tokens = local_prompt_tokens
+                         completion_tokens = self._count_tokens(aggregated_content, model)
 
                     # Log success (Async via BackgroundTasks)
                     background_tasks.add_task(
                         self._log_request,
-                        level, display_model_name, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data), trace_events, None, retry_count, prompt_tokens, completion_tokens
+                        level, display_model_name, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data), trace_events, None, retry_count, prompt_tokens, completion_tokens, token_source
                     )
                     
                     return response_data
@@ -620,6 +675,11 @@ class RouterEngine:
                     role = "assistant"
                     usage_info = None # Capture usage from stream options if available
                     
+                    # Pre-calculate prompt tokens locally just in case
+                    # Use full messages list for accuracy, fallback to empty list
+                    req_messages = payload.get("messages", [])
+                    local_prompt_tokens = self._count_messages_tokens(req_messages, model)
+                    
                     # Fix for Kimi/Moonshot & httpx compatibility issues:
                     # Manually handle buffer and decoding instead of relying on aiter_lines()
                     buffer = ""
@@ -647,11 +707,12 @@ class RouterEngine:
                                     continue # Don't break yet, process rest of buffer
                                 try:
                                     chunk_json = json.loads(data_str)
+                                    # Always check for usage field first, regardless of choices
+                                    if "usage" in chunk_json:
+                                        usage_info = chunk_json["usage"]
+
                                     choices = chunk_json.get("choices", [])
                                     if not choices:
-                                        # Check for usage field in the last chunk (OpenAI standard)
-                                        if "usage" in chunk_json:
-                                            usage_info = chunk_json["usage"]
                                         continue
                                         
                                     delta = choices[0].get("delta", {})
@@ -713,9 +774,9 @@ class RouterEngine:
                             }
                         ],
                         "usage": usage_info or {
-                            "prompt_tokens": 0, # Difficult to calculate without tokenizer
-                            "completion_tokens": 0,
-                            "total_tokens": 0
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": prompt_tokens + completion_tokens
                         }
                     }
                     
@@ -741,7 +802,7 @@ class RouterEngine:
         except httpx.ConnectTimeout:
             raise Exception("Connect Timeout: Connect timeout to upstream")
 
-    async def _log_request(self, level, model, duration, status, prompt, req_json, res_json, trace_data=None, stack_trace=None, retry_count=0, prompt_tokens=0, completion_tokens=0):
+    async def _log_request(self, level, model, duration, status, prompt, req_json, res_json, trace_data=None, stack_trace=None, retry_count=0, prompt_tokens=0, completion_tokens=0, token_source="upstream"):
         # This function is now run in background
         async with AsyncSessionLocal() as session:
             try:
@@ -796,7 +857,8 @@ class RouterEngine:
                     stack_trace=stack_trace,
                     retry_count=retry_count,
                     prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens
+                    completion_tokens=completion_tokens,
+                    token_source=token_source
                 )
                 session.add(log_entry)
                 await session.commit()

@@ -486,7 +486,12 @@ export function LogsPage() {
                           <h4 className="text-sm font-medium mb-2">执行追踪 (Trace)</h4>
                           {/* Token Usage Display */}
                           {((log.prompt_tokens ?? 0) > 0 || (log.completion_tokens ?? 0) > 0) && (
-                            <div className="flex gap-4 mb-3 p-3 bg-muted/50 rounded-lg border border-dashed">
+                            <div className="flex gap-4 mb-3 p-3 bg-muted/50 rounded-lg border border-dashed relative">
+                                {log.token_source === 'local' && (
+                                    <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-yellow-100 text-yellow-800 text-[9px] rounded border border-yellow-200 uppercase font-bold tracking-wider">
+                                        Local Calc
+                                    </div>
+                                )}
                                 <div className="flex flex-col">
                                     <span className="text-[10px] text-muted-foreground uppercase">Prompt Tokens</span>
                                     <span className="font-mono font-bold text-sky-600">{log.prompt_tokens}</span>
