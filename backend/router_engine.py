@@ -84,6 +84,23 @@ class RouterEngine:
     def get_all_stats(self) -> Dict[str, Dict[str, int]]:
         return self._model_stats
 
+    def cleanup_stats(self):
+        """Remove stats for models that are no longer in the configuration"""
+        config = config_manager.get_config()
+        current_models = set(config.t1_models + config.t2_models + config.t3_models)
+        
+        # Identify keys to remove (to avoid modifying dict while iterating)
+        to_remove = [m for m in self._model_stats if m not in current_models]
+        
+        for m in to_remove:
+            del self._model_stats[m]
+            logger.info(f"Removed stats for deleted model: {m}")
+        
+        # Also ensure new models are initialized
+        for m in current_models:
+            if m and m not in self._model_stats:
+                self._model_stats[m] = {"failures": 0, "success": 0}
+
     def _get_sorted_models(self, models: List[str], strategy: str) -> List[str]:
         if not models:
             return []

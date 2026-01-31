@@ -119,8 +119,13 @@ async def get_model_stats():
 
 @app.post("/api/config", dependencies=[Depends(verify_gateway_key)])
 async def update_config(config: AppConfig):
-    config_manager.update_config(config.model_dump())
-    return {"status": "success", "config": config_manager.get_config()}
+    try:
+        config_manager.update_config(config.model_dump())
+        # Cleanup stats for removed models
+        router_engine.cleanup_stats()
+        return {"status": "success", "config": config_manager.get_config()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/logs", dependencies=[Depends(verify_gateway_key)])
 async def get_logs(
