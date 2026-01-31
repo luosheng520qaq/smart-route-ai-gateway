@@ -212,6 +212,7 @@ class RouterEngine:
                     target_model_id = model_id_entry
                     target_base_url = config.upstream_base_url
                     target_api_key = config.upstream_api_key
+                    provider_label = None
                     
                     # 1. Check if model entry has "provider/model" format
                     if "/" in model_id_entry:
@@ -224,6 +225,7 @@ class RouterEngine:
                             target_base_url = provider.base_url
                             target_api_key = provider.api_key
                             target_model_id = real_model_id
+                            provider_label = provider_id
                         else:
                             logger.warning(f"Provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
                             pass 
@@ -235,101 +237,25 @@ class RouterEngine:
                             provider = config.providers[provider_id]
                             target_base_url = provider.base_url
                             target_api_key = provider.api_key
+                            provider_label = provider_id
                         else:
                              logger.warning(f"Mapped provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
+
+                    # Construct Display Model Name (Provider/Model)
+                    display_model_name = f"{provider_label}/{target_model_id}" if provider_label else target_model_id
 
                     # 2. Log: Model Call Start
                     call_start_time = time.time()
                     # Fix: Duration should be relative to previous step or just 0?
                     # The prompt says: "框架接收→首次调用"
                     # So duration_since_req is correct for "Framework Received -> First Call".
-                    # BUT for subsequent calls (retries), it should be "Switch -> Retry".
-                    # Let's check logic: call_start_time - start_time is "Time since Request Arrived".
-                    # If this is a retry, start_time is still T0.
-                    # User feedback says "delayed 900ms". Maybe because I was calculating since T0, but previous event was Router End?
-                    # Ah, "Router End" happened at T+905ms. "Model Call Start" at T+906ms.
-                    # The trace shows "duration_ms" for Model Call Start as +906ms.
-                    # Frontend interprets this as "Duration of this stage"? Or "Time offset from start"?
-                    # Frontend shows "+906ms" under Model Call Start.
-                    # User asks why 900ms delay.
-                    # Actually, if Frontend treats it as "Stage Duration", then "Router End" took 905ms?
-                    # Wait, let's check Frontend logic.
-                    # Frontend: +{event.duration_ms}ms.
-                    # Backend: duration_since_req = (call_start_time - start_time) * 1000
-                    # This means "Model Call Start" event records "Time elapsed since T0".
-                    # This is correct for "Timestamp relative to start".
-                    # But if the user thinks this is "Duration of the gap", then it is correct (gap is 906ms from start).
-                    # User says: "Intent End at +905ms", "Model Start at +906ms".
-                    # The gap is 1ms.
-                    # Why user says "delayed 900ms"?
-                    # User: "Intent End +905ms" ... "Model Start +906ms".
-                    # Maybe user misread or the UI layout is confusing.
-                    # Wait, user says: "Intent End... Model Start... +906ms".
-                    # User asks: "Why delay 900ms?"
-                    # Ah, "Intent End" took 900ms? No.
-                    # Trace:
-                    # 1. Intent Start (+0ms)
-                    # 2. Intent End (+905ms) -> This means Intent Recognition took 905ms.
-                    # 3. Model Start (+906ms) -> This means Model Start happened at 906ms from T0.
-                    # So the gap between Intent End and Model Start is 1ms.
-                    # User might be confusing "Duration of Stage" vs "Timestamp".
-                    # Frontend shows "+906ms" which looks like timestamp offset.
-                    
-                    # BUT, look at "First Token +0ms".
-                    # Code: trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, 0, ...)
-                    # Here duration is hardcoded to 0!
-                    # User says: "Model Call Start to First Token is 0ms, strange".
-                    # Yes, because I hardcoded 0.
-                    # Requirement d): "重试/首次调用→首包"耗时.
-                    # So I should calculate (ttft_time - call_start_time).
-                    
-                    # Fix 1: Calculate TTFT duration correctly.
-                    # Fix 2: User question about 900ms.
-                    # If Intent End is +905ms, and Model Start is +906ms.
-                    # The "Intent Recognition" stage took 905ms (http call to router model). This is normal.
-                    # The "Model Call Start" timestamp is 906ms.
-                    # User might be thinking "Model Call Start" itself took 906ms?
-                    # No, "Model Call Start" is a point in time.
-                    # I should ensure "duration" field in TraceEvent reflects "Stage Duration" or "Elapsed Time"?
-                    # Requirement 2: "绝对时间(ms) | 阶段耗时(ms)"
-                    # My add_trace_event usage:
-                    # REQ_RECEIVED: duration=0
-                    # ROUTER_END: duration=(end-start) -> 905ms. Correct.
-                    # MODEL_CALL_START: duration=(call_start - start_time). This is "Elapsed since T0", NOT "Stage Duration".
-                    # This is the bug!
-                    # For point-in-time events (Start, First Token), "duration" should probably be:
-                    # - For "Model Call Start": Duration of "Framework Prep"? Or just 0?
-                    #   Req a): "发起→框架接收"耗时. (This is T0-ClientSend, we can't know ClientSend).
-                    #   Req b): "框架接收→首次调用"耗时. This is (ModelCallStart - ReqReceived).
-                    #   So for MODEL_CALL_START, duration should be (call_start_time - start_time).
-                    #   Wait, if Router is involved, it includes Router time.
-                    #   If Router is used: Req -> RouterStart -> RouterEnd -> ModelCallStart.
-                    #   (ModelCallStart - RouterEnd) is the "Framework Prep" after routing.
-                    #   (ModelCallStart - ReqReceived) is total prep time.
-                    #   Current code: duration_since_req = (call_start_time - start_time).
-                    #   This IS "Framework Prep" (including Router).
-                    #   So +906ms is correct for "Time since Request Received".
-                    
-                    # User's confusion: "Intent End +905ms", "Model Start +906ms".
-                    # User thinks "Model Start" implies *starting* the model call.
-                    # User asks: "Why delayed 900ms?" -> Because Router took 905ms.
-                    # User asks: "Model Start to First Token is 0ms?" -> Because I passed 0.
-                    
-                    # Fix Plan:
-                    # 1. MODEL_CALL_START: duration should be "Time since Request Received" (as requested in 1b).
-                    #    Current: (call_start - start_time). Correct.
-                    # 2. FIRST_TOKEN: duration should be "Call Start -> First Token" (as requested in 1d).
-                    #    Current: 0. Incorrect.
-                    #    Fix: Pass (ttft_time - call_start_time).
                     
                     duration_since_req = (call_start_time - start_time) * 1000
                     trace_logger.log(trace_id, "MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count)
-                    # For frontend consistency, we might want "Stage Duration" for everything?
-                    # But the requirement says specific durations for specific events.
-                    # Let's keep MODEL_CALL_START as "Time from T0".
-                    add_trace_event("MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count, model=target_model_id)
                     
-                    logger.info(f"Trying model {target_model_id} (Provider URL: {target_base_url}) for level {level} (Round {round_idx + 1})")
+                    add_trace_event("MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count, model=display_model_name)
+                    
+                    logger.info(f"Trying model {display_model_name} (Provider URL: {target_base_url}) for level {level} (Round {round_idx + 1})")
                     
                     # Pass callback or wrapper to capture internal events if needed, or just return them
                     # Actually _call_upstream needs to return timing info or we pass a mutable object
@@ -348,7 +274,7 @@ class RouterEngine:
                     # Log success (Async via BackgroundTasks)
                     background_tasks.add_task(
                         self._log_request,
-                        level, target_model_id, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data), trace_events
+                        level, display_model_name, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data), trace_events
                     )
                     
                     return response_data
@@ -385,9 +311,9 @@ class RouterEngine:
                         reason = error_msg[:50] # Fallback to first 50 chars
 
                     trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count)
-                    add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=target_model_id, reason=reason)
+                    add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=display_model_name, reason=reason)
                     
-                    logger.error(f"Model {model_id_entry} failed (Round {round_idx + 1}): {e}")
+                    logger.error(f"Model {display_model_name} failed (Round {round_idx + 1}): {e}")
                     last_error = e
                     last_stack_trace = traceback.format_exc()
                     retry_count += 1
