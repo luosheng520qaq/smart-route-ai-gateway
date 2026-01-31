@@ -44,12 +44,19 @@ class RouterEngine:
     _model_stats: Dict[str, Dict[str, int]] = {} # { "model_id": { "failures": 0, "success": 0 } }
 
     async def startup(self):
-        """Initialize global HTTP client"""
+        """Initialize global HTTP client and model stats"""
         if self._client is None:
             # Configure global pool limits
             limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
             self._client = httpx.AsyncClient(limits=limits)
             logger.info("Global HTTP Client initialized")
+        
+        # Pre-populate stats for all configured models
+        config = config_manager.get_config()
+        all_models = set(config.t1_models + config.t2_models + config.t3_models)
+        for m in all_models:
+            if m and m not in self._model_stats:
+                self._model_stats[m] = {"failures": 0, "success": 0}
 
     async def shutdown(self):
         """Close global HTTP client"""
@@ -74,6 +81,9 @@ class RouterEngine:
         stats = self._get_model_stats(model_id)
         stats["failures"] += 1
 
+    def get_all_stats(self) -> Dict[str, Dict[str, int]]:
+        return self._model_stats
+
     def _get_sorted_models(self, models: List[str], strategy: str) -> List[str]:
         if not models:
             return []
@@ -88,39 +98,19 @@ class RouterEngine:
             return shuffled
             
         if strategy == "adaptive":
-            # Weighted random based on failures (Less failures = Higher weight)
-            # Weight = 1 / (1 + failures)
-            weighted_models = []
-            weights = []
-            
-            for m in models:
-                stats = self._get_model_stats(m)
-                weight = 1.0 / (1.0 + stats["failures"])
-                weighted_models.append(m)
-                weights.append(weight)
-            
-            # Weighted shuffle is complex, simplified approach:
-            # Select one by weight, remove, repeat. 
-            # Or simpler: Sort by failure count ascending (primary) and random (secondary)
-            # Let's do: Probabilistic selection without replacement
-            
-            # For simplicity and effectiveness:
-            # Sort by failure count (asc) to prioritize healthy models, 
-            # but add some randomness to equivalent scores?
-            # User asked for: "Random mode where models with more errors have lower weight"
-            # This implies they still want randomness, not strict sorting.
-            
-            # Implementation of Weighted Random Shuffle:
-            # Assign a random score * weight to each item, then sort by that score.
-            # Score = random.random() * (1 / (1 + failures))
-            # Higher score wins.
+            # Weighted random based on failures
+            # Refined Algorithm: Weight = 1 / (1 + failures * 0.2)
+            # This makes the decay less aggressive. 
+            # 1 failure -> 1/1.2 = 0.83 (was 0.5)
+            # 5 failures -> 1/2.0 = 0.50 (was 0.16)
+            # 10 failures -> 1/3.0 = 0.33 (was 0.09)
             
             scored_models = []
             for m in models:
                 stats = self._get_model_stats(m)
-                weight = 1.0 / (1.0 + stats["failures"])
-                # Add small epsilon to weight to differentiate 0 failures vs others slightly if needed, 
-                # but 1/(1+0)=1 is fine.
+                weight = 1.0 / (1.0 + stats["failures"] * 0.2)
+                
+                # Probabilistic score: higher weight increases chance of higher score
                 score = random.random() * weight
                 scored_models.append((score, m))
             
@@ -530,16 +520,16 @@ class RouterEngine:
                 raise
             
             # 3. Log: First Token (Headers Received)
-                ttft_time = time.time()
-                # Duration from "Request Received" (or "Retry Start"?) Prompt says: "Retry/FirstCall -> First Token"
-                # So we need time of THIS call start? Yes, req_start_time passed in is actually call_start_time now.
-                duration_ttft = (ttft_time - req_start_time) * 1000
-                
-                trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count)
-                if trace_callback:
-                    trace_callback("FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count) 
+            ttft_time = time.time()
+            # Duration from "Request Received" (or "Retry Start"?) Prompt says: "Retry/FirstCall -> First Token"
+            # So we need time of THIS call start? Yes, req_start_time passed in is actually call_start_time now.
+            duration_ttft = (ttft_time - req_start_time) * 1000
+            
+            trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count)
+            if trace_callback:
+                trace_callback("FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count) 
 
-                try:
+            try:
                     # 1. Check Status Code Failover
                     if response.status_code != 200:
                         try:
@@ -682,13 +672,13 @@ class RouterEngine:
                         trace_callback("FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
                     
                     return final_response
-                except Exception as e:
-                     # Propagate exception to context manager
-                     if not await ctx.__aexit__(type(e), e, e.__traceback__):
-                         raise
-                else:
-                     # Success exit
-                     await ctx.__aexit__(None, None, None)
+            except Exception as e:
+                    # Propagate exception to context manager
+                    if not await ctx.__aexit__(type(e), e, e.__traceback__):
+                        raise
+            else:
+                    # Success exit
+                    await ctx.__aexit__(None, None, None)
 
         except httpx.ReadTimeout:
             raise Exception("Total Timeout (Read): Read timeout from upstream")

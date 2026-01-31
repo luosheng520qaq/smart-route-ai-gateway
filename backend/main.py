@@ -113,6 +113,10 @@ async def list_models():
 async def get_config():
     return config_manager.get_config()
 
+@app.get("/api/stats/models", dependencies=[Depends(verify_gateway_key)])
+async def get_model_stats():
+    return router_engine.get_all_stats()
+
 @app.post("/api/config", dependencies=[Depends(verify_gateway_key)])
 async def update_config(config: AppConfig):
     config_manager.update_config(config.model_dump())

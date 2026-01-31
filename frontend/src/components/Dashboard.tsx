@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
-import { Activity, Clock, AlertTriangle, RefreshCcw } from 'lucide-react';
-import { fetchStats, Stats } from '@/lib/api';
+import { Activity, Clock, AlertTriangle, RefreshCcw, HeartPulse } from 'lucide-react';
+import { fetchStats, fetchModelStats, Stats } from '@/lib/api';
 import { Button } from "@/components/ui/button";
 
 const COLORS = ['#0ea5e9', '#22d3ee', '#94a3b8', '#cbd5e1']; // Sky, Cyan, Slate, Light Slate
@@ -15,18 +15,18 @@ const formatChartDate = (isoStr: string) => {
 
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
-  // Remove unused logs state for now, as Dashboard only shows charts and stats cards
-  // const [logs, setLogs] = useState<RequestLog[]>([]); 
+  const [modelStats, setModelStats] = useState<Record<string, { failures: number; success: number }> | null>(null);
   const [loading, setLoading] = useState(true);
-  // const [chartZoom, setChartZoom] = useState<{ left?: string, right?: string }>({}); // Prepared for future zoom implementation
 
   const loadData = async () => {
     try {
-      // Just fetch stats for dashboard view
-      const statsData = await fetchStats();
+      // Fetch stats and model stats in parallel
+      const [statsData, modelStatsData] = await Promise.all([
+        fetchStats(),
+        fetchModelStats()
+      ]);
       setStats(statsData);
-      // const logsData = await fetchLogs(1, 10);
-      // setLogs(logsData.logs);
+      setModelStats(modelStatsData);
     } catch (error) {
       console.error("Failed to load dashboard data", error);
     } finally {
@@ -41,8 +41,6 @@ export function Dashboard() {
   }, []);
 
   const handleResetZoom = () => {
-    // Reset logic placeholder if we implement interactive zoom later
-    // setChartZoom({});
     console.log("Reset zoom");
   };
 
@@ -53,6 +51,19 @@ export function Dashboard() {
     time: formatChartDate(item.time),
     value: Math.round(item.duration) // Integer ms
   })) || [];
+
+  // Calculate Health/Weight for Model Stats
+  const modelHealthData = Object.entries(modelStats || {}).map(([model, data]) => {
+      // Weight formula from backend: 1.0 / (1.0 + failures * 0.2)
+      const weight = 1.0 / (1.0 + data.failures * 0.2);
+      return {
+          model,
+          success: data.success,
+          failures: data.failures,
+          weight: weight,
+          health: Math.round(weight * 100) // 0-100 score
+      };
+  }).sort((a, b) => a.health - b.health); // Sort by health asc (problematic ones first)
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700 slide-in-from-bottom-4">
@@ -89,6 +100,46 @@ export function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Model Health Status */}
+      <Card className="border-none shadow-sm bg-card/50">
+        <CardHeader>
+            <div className="flex items-center gap-2">
+                <HeartPulse className="h-5 w-5 text-rose-500" />
+                <CardTitle>模型健康度监控 (Adaptive Health)</CardTitle>
+            </div>
+            <CardDescription>
+                实时监控各模型的成功/失败次数及自适应权重。权重越低，被调用的概率越小。
+            </CardDescription>
+        </CardHeader>
+        <CardContent>
+            {modelHealthData.length === 0 ? (
+                <div className="text-center text-muted-foreground py-8">暂无模型调用数据</div>
+            ) : (
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {modelHealthData.map((m) => (
+                            <div key={m.model} className="flex items-center justify-between p-3 border rounded-lg bg-background/50">
+                                <div>
+                                    <div className="font-medium text-sm truncate max-w-[150px]" title={m.model}>{m.model}</div>
+                                    <div className="text-xs text-muted-foreground flex gap-2 mt-1">
+                                        <span className="text-emerald-500">成功: {m.success}</span>
+                                        <span className={m.failures > 0 ? "text-rose-500 font-bold" : "text-muted-foreground"}>失败: {m.failures}</span>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-xs text-muted-foreground mb-1">健康度</div>
+                                    <div className={`text-lg font-bold ${m.health < 50 ? 'text-rose-500' : m.health < 80 ? 'text-yellow-500' : 'text-emerald-500'}`}>
+                                        {m.health}%
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </CardContent>
+      </Card>
 
       {/* Charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -139,16 +190,19 @@ export function Dashboard() {
                 />
                 <YAxis 
                    tickFormatter={(val) => `${val}ms`}
-                   domain={['auto', 'auto']}
+                   domain={[0, 'auto']}
+                   width={40}
+                   tick={{fontSize: 10}}
                 />
                 <Tooltip 
                    formatter={(value: any) => [`${value} ms`, "Duration"]}
                    labelStyle={{color: '#666'}}
+                   contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
                 />
                 <Line 
                   type="monotone" 
                   dataKey="value" 
-                  stroke="#8884d8" 
+                  stroke="#0ea5e9" 
                   strokeWidth={2} 
                   dot={(props: any) => {
                       const { cx, cy, payload } = props;
@@ -156,8 +210,9 @@ export function Dashboard() {
                       if (payload.value > 3000) fill = "#ef4444"; // Red > 3000
                       else if (payload.value > 1000) fill = "#eab308"; // Yellow > 1000
                       
-                      return <circle cx={cx} cy={cy} r={4} stroke="none" fill={fill} key={payload.time} />;
+                      return <circle cx={cx} cy={cy} r={3} stroke="none" fill={fill} key={payload.time} />;
                   }}
+                  activeDot={{ r: 6, stroke: '#0ea5e9', strokeWidth: 2, fill: '#fff' }}
                 />
               </LineChart>
             </ResponsiveContainer>

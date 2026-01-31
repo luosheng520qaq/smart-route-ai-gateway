@@ -139,3 +139,8 @@ export const fetchStats = async () => {
   const response = await api.get<Stats>('/api/stats');
   return response.data;
 };
+
+export const fetchModelStats = async () => {
+  const response = await api.get<Record<string, { failures: number; success: number }>>('/api/stats/models');
+  return response.data;
+};
