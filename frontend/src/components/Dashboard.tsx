@@ -81,7 +81,14 @@ export function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-sky-500 to-cyan-500">{stats?.total_requests}</div>
-            <p className="text-xs text-muted-foreground mt-1">较昨日 <span className="text-emerald-500 font-medium">+20.1%</span></p>
+            <p className="text-xs text-muted-foreground mt-1">
+              较昨日 <span className={`font-medium ${
+                (stats?.request_change_percentage || 0) > 0 ? 'text-emerald-500' : 
+                (stats?.request_change_percentage || 0) < 0 ? 'text-rose-500' : 'text-muted-foreground'
+              }`}>
+                {(stats?.request_change_percentage || 0) > 0 ? '+' : ''}{stats?.request_change_percentage || 0}%
+              </span>
+            </p>
           </CardContent>
         </Card>
         <Card className="group hover:border-cyan-400/50 transition-all duration-300">

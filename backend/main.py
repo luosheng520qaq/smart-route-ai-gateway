@@ -464,6 +464,20 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     q_total = select(func.count(RequestLog.id)).where(RequestLog.timestamp >= today)
     res_total = await db.execute(q_total)
     total_requests = res_total.scalar() or 0
+
+    # Total Requests Yesterday
+    yesterday = today - timedelta(days=1)
+    q_yesterday = select(func.count(RequestLog.id)).where(
+        and_(RequestLog.timestamp >= yesterday, RequestLog.timestamp < today)
+    )
+    res_yesterday = await db.execute(q_yesterday)
+    total_requests_yesterday = res_yesterday.scalar() or 0
+
+    # Calculate Percentage Change
+    if total_requests_yesterday > 0:
+        change_pct = ((total_requests - total_requests_yesterday) / total_requests_yesterday) * 100
+    else:
+        change_pct = 100.0 if total_requests > 0 else 0.0
     
     # Avg Duration Today
     q_avg = select(func.avg(RequestLog.duration_ms)).where(RequestLog.timestamp >= today)
@@ -493,6 +507,7 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
 
     return {
         "total_requests": total_requests,
+        "request_change_percentage": round(change_pct, 1),
         "avg_duration": round(avg_duration, 2),
         "error_rate": round(error_rate, 2),
         "intent_distribution": intent_dist,

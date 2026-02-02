@@ -134,6 +134,7 @@ export interface TraceEvent {
 
 export interface Stats {
   total_requests: number;
+  request_change_percentage?: number;
   avg_duration: number;
   error_rate: number;
   intent_distribution: { name: string; value: number }[];
