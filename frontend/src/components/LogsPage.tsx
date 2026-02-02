@@ -15,7 +15,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { CheckCircle2, XCircle, RefreshCw, FileText, Download, Lock, Info } from 'lucide-react';
 import { fetchLogs, exportLogs, RequestLog, TraceEvent, LogFilters } from '@/lib/api';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function LogsPage() {
   const [logs, setLogs] = useState<RequestLog[]>([]);
@@ -529,20 +528,18 @@ export function LogsPage() {
                                                 </span>
                                             )}
                                             {event.reason && (
-                                                <div className="mt-1">
-                                                    <TooltipProvider>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <span className="text-[10px] text-red-500 font-mono flex items-center gap-1 cursor-help hover:underline decoration-dotted decoration-red-500/50">
-                                                                    <Info className="h-3 w-3" />
-                                                                    {event.reason.length > 50 ? `${event.reason.substring(0, 50)}...` : event.reason}
-                                                                </span>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent className="max-w-[300px] break-all bg-red-50 text-red-900 border-red-200">
-                                                                <p className="text-xs font-mono">{event.reason}</p>
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
+                                                <div className="ml-2">
+                                                    <Popover>
+                                                        <PopoverTrigger asChild>
+                                                            <Info className="h-3 w-3 text-red-500 cursor-pointer" />
+                                                        </PopoverTrigger>
+                                                        <PopoverContent className="w-80 p-3" align="start">
+                                                            <div className="space-y-2">
+                                                                <h4 className="font-medium text-xs text-red-600">错误详情</h4>
+                                                                <p className="text-xs font-mono break-all bg-muted p-2 rounded">{event.reason}</p>
+                                                            </div>
+                                                        </PopoverContent>
+                                                    </Popover>
                                                 </div>
                                             )}
                                         </div>

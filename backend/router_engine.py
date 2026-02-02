@@ -110,7 +110,12 @@ class RouterEngine:
         all_models = set(config.t1_models + config.t2_models + config.t3_models)
         for m in all_models:
             if m and m not in self._model_stats:
-                self._model_stats[m] = {"failures": 0, "success": 0}
+                self._model_stats[m] = {
+                    "failures": 0, 
+                    "success": 0, 
+                    "failure_score": 0.0,
+                    "last_updated": time.time()
+                }
 
     async def shutdown(self):
         """Close global HTTP client"""

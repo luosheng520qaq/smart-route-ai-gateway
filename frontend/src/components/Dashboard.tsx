@@ -56,15 +56,15 @@ export function Dashboard() {
   })) || [];
 
   // Calculate Health/Weight for Model Stats
-  const modelHealthData = Object.entries(modelStats || {}).map(([model, data]) => {
-      // Weight formula from backend: 1.0 / (1.0 + failures * 0.2)
-      const weight = 1.0 / (1.0 + data.failures * 0.2);
+  const modelHealthData = Object.entries(modelStats || {}).map(([model, data]: [string, any]) => {
+      // Use health_score from backend if available, otherwise fallback (for safety)
+      const health = data.health_score !== undefined ? data.health_score : Math.round((1.0 / (1.0 + (data.failures || 0) * 0.2)) * 100);
+      
       return {
           model,
           success: data.success,
           failures: data.failures,
-          weight: weight,
-          health: Math.round(weight * 100) // 0-100 score
+          health: health
       };
   }).sort((a, b) => a.health - b.health); // Sort by health asc (problematic ones first)
 

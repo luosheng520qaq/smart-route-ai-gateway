@@ -219,7 +219,7 @@ async def export_logs(
     # Generate CSV
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["ID", "Timestamp", "Level", "Model", "Duration(ms)", "Status", "Prompt", "Error Details", "Stack Trace", "Retry Count"])
+    writer.writerow(["ID", "Timestamp", "Level", "Model", "Duration(ms)", "Status", "Prompt", "Error Details", "Stack Trace", "Retry Count", "Trace"])
     
     for log in logs:
         writer.writerow([
@@ -232,7 +232,8 @@ async def export_logs(
             log.user_prompt_preview,
             log.full_response if log.status != 'success' else "",
             log.stack_trace or "",
-            log.retry_count or 0
+            log.retry_count or 0,
+            log.trace or ""
         ])
     
     output.seek(0)
