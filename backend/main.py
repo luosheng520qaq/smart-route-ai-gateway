@@ -397,7 +397,7 @@ async def get_logs(
         "logs": logs
     }
 
-@app.get("/api/logs/export", dependencies=[Depends(verify_gateway_key)])
+@app.get("/api/logs/export", dependencies=[Depends(get_current_active_user)])
 async def export_logs(
     level: Optional[str] = None,
     status: Optional[str] = None,
