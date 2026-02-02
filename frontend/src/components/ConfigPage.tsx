@@ -467,6 +467,36 @@ function ResilienceSettings({ config, setConfig }: { config: AppConfig, setConfi
                     </div>
                 </CardContent>
             </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle>健康检查 (Health Check)</CardTitle>
+                    <CardDescription>配置模型健康分数的自动恢复机制</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <Label>健康恢复速率 (Decay Rate)</Label>
+                        <div className="flex items-center gap-4">
+                            <Input 
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={config.health.decay_rate}
+                                onChange={(e) => setConfig({
+                                    ...config,
+                                    health: {
+                                        ...config.health,
+                                        decay_rate: parseFloat(e.target.value)
+                                    }
+                                })}
+                                className="w-32"
+                            />
+                            <span className="text-sm text-muted-foreground">点/分钟 (Points/Min)</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">模型发生故障后，故障分数会随时间自动减少，从而恢复健康度。</p>
+                    </div>
+                </CardContent>
+            </Card>
         </div>
     )
 }

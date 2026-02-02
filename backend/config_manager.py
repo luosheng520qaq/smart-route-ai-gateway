@@ -137,8 +137,10 @@ class AppConfig(BaseModel):
 class ConfigManager:
     _instance = None
     _config: AppConfig = None
-    _config_path: str = "config.json"
-    _backup_path: str = "config.backup.json"
+    # Use absolute path relative to project root (one level up from backend)
+    _base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _config_path: str = os.path.join(_base_dir, "config.json")
+    _backup_path: str = os.path.join(_base_dir, "config.backup.json")
 
     def __new__(cls):
         if cls._instance is None:
