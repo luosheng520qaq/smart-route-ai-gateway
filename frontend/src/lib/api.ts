@@ -203,6 +203,6 @@ export const fetchStats = async () => {
 };
 
 export const fetchModelStats = async () => {
-  const response = await api.get<Record<string, { failures: number; success: number }>>('/api/stats/models');
+  const response = await api.get<Record<string, { failures: number; success: number; failure_score?: number; health_score?: number }>>('/api/stats/models');
   return response.data;
 };

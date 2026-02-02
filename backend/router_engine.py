@@ -111,9 +111,8 @@ class RouterEngine:
         for m in all_models:
             if m and m not in self._model_stats:
                 self._model_stats[m] = {
-                    "failures": 0, 
+                    "failures": 0.0, 
                     "success": 0, 
-                    "failure_score": 0.0,
                     "last_updated": time.time()
                 }
 
@@ -146,17 +145,32 @@ class RouterEngine:
 
     def _get_model_stats(self, model_id: str) -> Dict[str, Any]:
         if model_id not in self._model_stats:
-            self._model_stats[model_id] = {"failures": 0.0, "success": 0, "last_updated": time.time()}
+            self._model_stats[model_id] = {
+                "failures": 0, 
+                "success": 0, 
+                "failure_score": 0.0, 
+                "last_updated": time.time()
+            }
         
-        # Backward compatibility for existing stats
+        # Backward compatibility / Migration
         stats = self._model_stats[model_id]
+        if "failure_score" not in stats:
+            # Migration: Use existing failures as score, but cast failures to int
+            current_val = stats.get("failures", 0.0)
+            stats["failure_score"] = float(current_val)
+            stats["failures"] = int(current_val)
+
         if "last_updated" not in stats:
             stats["last_updated"] = time.time()
+            
+        # Calculate dynamic health score (0-100) for UI
+        fs = stats.get("failure_score", 0.0)
+        stats["health_score"] = int(100.0 / (1.0 + fs * 0.2))
             
         return stats
 
     def _refresh_stats(self, model_id: str):
-        """Apply time-based decay to failure count to allow automatic recovery."""
+        """Apply time-based decay to failure_score to allow automatic recovery."""
         stats = self._get_model_stats(model_id)
         now = time.time()
         last_updated = stats.get("last_updated", now)
@@ -170,8 +184,8 @@ class RouterEngine:
         
         if elapsed_min > 0.1: # Only update if meaningful time passed (>6s)
             decay_amount = elapsed_min * decay_rate
-            if stats["failures"] > 0:
-                stats["failures"] = max(0.0, stats["failures"] - decay_amount)
+            if stats["failure_score"] > 0:
+                stats["failure_score"] = max(0.0, stats["failure_score"] - decay_amount)
             
             stats["last_updated"] = now
 
@@ -181,9 +195,8 @@ class RouterEngine:
         stats["success"] += 1
         
         # Significant bonus on success: reduce failure score by 2.0
-        # This helps a model that was previously failing to quickly regain trust
-        if stats["failures"] > 0:
-            stats["failures"] = max(0.0, stats["failures"] - 2.0)
+        if stats["failure_score"] > 0:
+            stats["failure_score"] = max(0.0, stats["failure_score"] - 2.0)
             
         stats["last_updated"] = time.time()
         self._save_stats() # Persist on change (optimize frequency if high traffic)
@@ -191,7 +204,8 @@ class RouterEngine:
     def _record_failure(self, model_id: str, penalty: float = 1.0):
         self._refresh_stats(model_id) # Apply decay first
         stats = self._get_model_stats(model_id)
-        stats["failures"] += penalty
+        stats["failures"] += 1 # Integer counter (always increments)
+        stats["failure_score"] += penalty # Dynamic score (decays)
         stats["last_updated"] = time.time()
         self._save_stats() # Persist on change
 
@@ -216,7 +230,12 @@ class RouterEngine:
         # Also ensure new models are initialized
         for m in current_models:
             if m and m not in self._model_stats:
-                self._model_stats[m] = {"failures": 0.0, "success": 0, "last_updated": time.time()}
+                self._model_stats[m] = {
+                    "failures": 0, 
+                    "success": 0, 
+                    "failure_score": 0.0, 
+                    "last_updated": time.time()
+                }
         
         self._save_stats() # Persist after cleanup
 
@@ -235,7 +254,7 @@ class RouterEngine:
             
         if strategy == "adaptive":
             # Weighted random based on failures
-            # Refined Algorithm: Weight = 1 / (1 + failures * 0.2)
+            # Refined Algorithm: Weight = 1 / (1 + failure_score * 0.5)
             # This makes the decay less aggressive. 
             # 1 failure -> 1/1.2 = 0.83 (was 0.5)
             # 5 failures -> 1/2.0 = 0.50 (was 0.16)
@@ -247,7 +266,7 @@ class RouterEngine:
                 self._refresh_stats(m)
                 stats = self._get_model_stats(m)
                 
-                weight = 1.0 / (1.0 + stats["failures"] * 0.5) # Increased sensitivity slightly (0.2 -> 0.5) since failures decay now
+                weight = 1.0 / (1.0 + stats["failure_score"] * 0.5) # Increased sensitivity slightly (0.2 -> 0.5) since failures decay now
                 
                 # Probabilistic score: higher weight increases chance of higher score
                 score = random.random() * weight

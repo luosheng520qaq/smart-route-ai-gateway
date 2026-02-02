@@ -17,7 +17,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [modelStats, setModelStats] = useState<Record<string, { failures: number; success: number }> | null>(null);
+  const [modelStats, setModelStats] = useState<Record<string, { failures: number; success: number; health_score?: number }> | null>(null);
   const [loading, setLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
 
