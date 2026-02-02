@@ -8,14 +8,20 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Save, Plus, Trash2, GripVertical, Brain, AlertOctagon, HeartPulse } from 'lucide-react';
+import { Save, Plus, Trash2, GripVertical, Brain, AlertOctagon, HeartPulse, ShieldCheck } from 'lucide-react';
 import { AppConfig, fetchConfig, updateConfig } from '@/lib/api';
+import { Setup2FA } from './AuthPage';
+import { ChangePassword } from './ChangePassword';
+import { useAuth } from '@/lib/auth';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 export function ConfigPage() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
+  const { has2FA, checkAuth } = useAuth();
 
   useEffect(() => {
     loadConfig();
@@ -718,10 +724,11 @@ export function ConfigPage() {
       </Card>
 
       <Tabs defaultValue="t1" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="t1">Level 1 (快速)</TabsTrigger>
           <TabsTrigger value="t2">Level 2 (智能)</TabsTrigger>
           <TabsTrigger value="t3">Level 3 (专家)</TabsTrigger>
+          <TabsTrigger value="security">安全设置</TabsTrigger>
         </TabsList>
         
         {['t1', 't2', 't3'].map((level) => (
@@ -835,6 +842,92 @@ export function ConfigPage() {
             </Card>
           </TabsContent>
         ))}
+
+        <TabsContent value="security" className="space-y-6">
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <ShieldCheck className="h-5 w-5 text-sky-500" />
+                        安全设置
+                    </CardTitle>
+                    <CardDescription>
+                        配置访问控制和身份验证
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                    {/* Gateway Key */}
+                    <div className="space-y-2">
+                        <Label>API 访问密钥 (Gateway API Key)</Label>
+                        <div className="flex gap-2">
+                            <Input 
+                                type="password"
+                                value={config?.gateway_api_key || ''} 
+                                onChange={(e) => setConfig(config ? {...config, gateway_api_key: e.target.value} : null)}
+                                placeholder="未设置 (允许所有访问)"
+                            />
+                        </div>
+                        <p className="text-xs text-muted-foreground">用于保护 `/v1/chat/completions` 等 OpenAI 兼容接口。</p>
+                    </div>
+
+                    <div className="border-t pt-4">
+                        <h3 className="text-sm font-medium mb-4">账户安全</h3>
+                        
+                        {/* Change Password Section */}
+                        <div className="flex items-center justify-between p-4 border rounded-lg bg-slate-50 mb-4">
+                            <div>
+                                <div className="font-medium">修改密码</div>
+                                <div className="text-sm text-muted-foreground">
+                                    定期修改密码以保护账户安全。
+                                </div>
+                            </div>
+                            <div>
+                                <Dialog>
+                                    <DialogTrigger asChild>
+                                        <Button variant="outline">修改密码</Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                        <DialogHeader>
+                                            <DialogTitle>修改密码</DialogTitle>
+                                        </DialogHeader>
+                                        <ChangePassword />
+                                    </DialogContent>
+                                </Dialog>
+                            </div>
+                        </div>
+
+                        {/* 2FA Section */}
+                        <div className="flex items-center justify-between p-4 border rounded-lg bg-slate-50">
+                            <div>
+                                <div className="font-medium">两步验证 (2FA)</div>
+                                <div className="text-sm text-muted-foreground">
+                                    {has2FA ? "已启用。登录时需要输入动态验证码。" : "未启用。建议启用以提高账户安全性。"}
+                                </div>
+                            </div>
+                            <div>
+                                {has2FA ? (
+                                    <Button variant="outline" disabled>已启用</Button>
+                                ) : (
+                                    <Dialog>
+                                        <DialogTrigger asChild>
+                                            <Button>启用 2FA</Button>
+                                        </DialogTrigger>
+                                        <DialogContent>
+                                            <DialogHeader>
+                                                <DialogTitle>设置两步验证</DialogTitle>
+                                            </DialogHeader>
+                                            <Setup2FA onComplete={() => {
+                                                checkAuth();
+                                                // Close dialog logic handled by Radix usually or state
+                                            }} />
+                                        </DialogContent>
+                                    </Dialog>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+        </TabsContent>
       </Tabs>
     </div>
   );

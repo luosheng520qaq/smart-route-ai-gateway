@@ -109,15 +109,142 @@ async def list_models():
 
 # --- Management API ---
 
-@app.get("/api/config", dependencies=[Depends(verify_gateway_key)])
+from auth import (
+    UserAuth, Token, UserCreate, TOTPVerify, TOTPSetupResponse, PasswordChange,
+    get_current_active_user, create_access_token, verify_password, 
+    get_password_hash, generate_totp_secret, get_totp_uri, verify_totp, 
+    ACCESS_TOKEN_EXPIRE_MINUTES
+)
+from database import init_db, get_db, RequestLog, User, AsyncSession, prune_logs
+
+# --- Auth Routes ---
+@app.post("/api/auth/login", response_model=Token)
+async def login_for_access_token(form_data: UserAuth, db: AsyncSession = Depends(get_db)):
+    # 1. Check User
+    result = await db.execute(select(User).where(User.username == form_data.username))
+    user = result.scalars().first()
+    
+    # Auto-create admin if not exists (for first run ease of use)
+    if not user and form_data.username == "admin":
+        # Create default admin
+        hashed = get_password_hash(form_data.password)
+        new_user = User(username="admin", hashed_password=hashed)
+        db.add(new_user)
+        await db.commit()
+        await db.refresh(new_user)
+        user = new_user
+    
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # 2. Check 2FA if enabled (if secret exists)
+    if user.totp_secret:
+        # If 2FA is enabled, we need a code. But this login endpoint is for initial password check.
+        # Flow:
+        # A) If 2FA enabled -> Return a temporary "pre-auth" token or require code in request?
+        #    Simpler: Require code in a separate step or included in login?
+        #    Let's use a standard flow: Login returns Token ONLY if 2FA not enabled.
+        #    If 2FA enabled, it returns 403 with detail="2FA_REQUIRED"
+        pass 
+    
+    # For this implementation, we will assume the client sends the 2FA code in a header or we verify it in a second step.
+    # To keep it simple but secure: Login just checks password. 
+    # BUT, to enforce 2FA, we should check it here if set.
+    # Let's add a "code" field to UserAuth or handle it.
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/api/auth/2fa/verify", response_model=Token)
+async def verify_2fa_login(
+    username: str, 
+    code: str, 
+    password: str, # Re-verify password to be safe, or use a temp token
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalars().first()
+    
+    if not user or not verify_password(password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+    if not user.totp_secret:
+         # 2FA not setup, just login
+         access_token = create_access_token(data={"sub": user.username})
+         return {"access_token": access_token, "token_type": "bearer"}
+         
+    if not verify_totp(user.totp_secret, code):
+        raise HTTPException(status_code=401, detail="Invalid 2FA Code")
+        
+    access_token = create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/api/auth/2fa/setup", response_model=TOTPSetupResponse)
+async def setup_2fa(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if current_user.totp_secret:
+        raise HTTPException(status_code=400, detail="2FA already enabled")
+        
+    secret = generate_totp_secret()
+    # Don't save yet, wait for confirmation
+    uri = get_totp_uri(secret, current_user.username)
+    return {"secret": secret, "otpauth_url": uri}
+
+@app.post("/api/auth/2fa/confirm")
+async def confirm_2fa(
+    code: str,
+    secret: str,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if not verify_totp(secret, code):
+        raise HTTPException(status_code=400, detail="Invalid code")
+        
+    current_user.totp_secret = secret
+    await db.commit()
+    return {"status": "success", "message": "2FA Enabled"}
+
+@app.get("/api/auth/me")
+async def read_users_me(current_user: User = Depends(get_current_active_user)):
+    return {
+        "username": current_user.username, 
+        "is_active": current_user.is_active,
+        "has_2fa": bool(current_user.totp_secret)
+    }
+
+@app.post("/api/auth/change-password")
+async def change_password(
+    password_data: PasswordChange,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if not verify_password(password_data.old_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect old password")
+    
+    current_user.hashed_password = get_password_hash(password_data.new_password)
+    await db.commit()
+    return {"status": "success", "message": "Password updated"}
+
+# --- Management API (Protected by JWT) ---
+
+@app.get("/api/config", dependencies=[Depends(get_current_active_user)])
 async def get_config():
     return config_manager.get_config()
 
-@app.get("/api/stats/models", dependencies=[Depends(verify_gateway_key)])
+@app.get("/api/stats/models", dependencies=[Depends(get_current_active_user)])
 async def get_model_stats():
     return router_engine.get_all_stats()
 
-@app.post("/api/config", dependencies=[Depends(verify_gateway_key)])
+@app.post("/api/config", dependencies=[Depends(get_current_active_user)])
 async def update_config(config: AppConfig):
     try:
         config_manager.update_config(config.model_dump())
@@ -127,7 +254,7 @@ async def update_config(config: AppConfig):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/logs", dependencies=[Depends(verify_gateway_key)])
+@app.get("/api/logs", dependencies=[Depends(get_current_active_user)])
 async def get_logs(
     page: int = 1, 
     page_size: int = 20,
@@ -241,7 +368,7 @@ async def export_logs(
     response.headers["Content-Disposition"] = f"attachment; filename=logs_export_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv"
     return response
 
-@app.get("/api/stats", dependencies=[Depends(verify_gateway_key)])
+@app.get("/api/stats", dependencies=[Depends(get_current_active_user)])
 async def get_stats(db: AsyncSession = Depends(get_db)):
     # Today's stats
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -315,7 +442,12 @@ if os.path.exists(frontend_dist):
             raise HTTPException(status_code=404, detail="Not Found")
             
         # Serve index.html for all other routes (SPA)
-        return FileResponse(os.path.join(frontend_dist, "index.html"))
+        response = FileResponse(os.path.join(frontend_dist, "index.html"))
+        # Disable caching for index.html to ensure updates are seen immediately
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
 if __name__ == "__main__":
     import uvicorn

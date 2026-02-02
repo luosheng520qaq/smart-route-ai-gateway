@@ -1,22 +1,28 @@
 import axios from 'axios';
 
-const API_BASE_URL = ''; // Use relative path for portability
-
 export const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: (import.meta as any).env.VITE_API_URL || '',
 });
 
-// Add Auth Interceptor
-api.interceptors.request.use((config) => {
-  const key = localStorage.getItem('gateway_key');
-  if (key) {
-    config.headers.Authorization = `Bearer ${key}`;
+// Interceptor to add Bearer token
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem('access_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
+
+api.interceptors.response.use(
+    response => response,
+    error => {
+        if (error.response?.status === 401 && !window.location.pathname.includes('/login')) {
+            // Optional: Redirect to login or clear token
+            // But let the component handle it via AuthContext
+        }
+        return Promise.reject(error);
+    }
+);
 
 export interface RouterConfig {
   enabled: boolean;

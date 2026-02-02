@@ -41,6 +41,15 @@ class RequestLog(Base):
     completion_tokens = Column(Integer, default=0)
     token_source = Column(String, default="upstream") # upstream / local
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    totp_secret = Column(String, nullable=True) # 2FA Secret
+    is_active = Column(Integer, default=1) # 1: Active, 0: Inactive
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

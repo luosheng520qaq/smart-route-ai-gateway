@@ -7,3 +7,7 @@ aiosqlite
 python-dotenv
 websockets
 tiktoken
+pyotp
+python-jose[cryptography]
+passlib
+bcrypt==4.0.1

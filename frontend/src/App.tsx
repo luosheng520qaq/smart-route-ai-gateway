@@ -3,10 +3,12 @@ import { Dashboard } from '@/components/Dashboard'
 import { ConfigPage } from '@/components/ConfigPage'
 import { LogsPage } from '@/components/LogsPage'
 import { TerminalPage } from '@/components/TerminalPage'
+import { LoginPage } from '@/components/AuthPage'
 import { Toaster } from "@/components/ui/sonner"
-import { LayoutDashboard, Settings, Boxes, ScrollText, Menu, TerminalSquare } from 'lucide-react'
+import { LayoutDashboard, Settings, Boxes, ScrollText, Menu, TerminalSquare, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { AuthProvider, useAuth } from '@/lib/auth'
 
 interface SidebarProps {
   activeTab: 'dashboard' | 'config' | 'logs' | 'terminal';
@@ -15,6 +17,8 @@ interface SidebarProps {
 }
 
 function SidebarContent({ activeTab, setActiveTab, closeSheet }: SidebarProps) {
+  const { logout, username } = useAuth();
+  
   const handleTabClick = (tab: 'dashboard' | 'config' | 'logs' | 'terminal') => {
     setActiveTab(tab);
     if (closeSheet) closeSheet();
@@ -83,6 +87,12 @@ function SidebarContent({ activeTab, setActiveTab, closeSheet }: SidebarProps) {
         </button>
       </nav>
       <div className="p-6 border-t border-white/20">
+        <div className="flex items-center justify-between mb-2 px-2">
+            <span className="text-sm font-medium text-slate-600">{username}</span>
+            <button onClick={logout} className="text-slate-400 hover:text-red-500 transition-colors">
+                <LogOut className="h-4 w-4" />
+            </button>
+        </div>
         <div className="text-xs text-slate-400 font-medium text-center glass py-3 px-4 rounded-xl shadow-sm">
           v1.2.0
         </div>
@@ -92,9 +102,14 @@ function SidebarContent({ activeTab, setActiveTab, closeSheet }: SidebarProps) {
 }
 
 
-function App() {
+function MainLayout() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'config' | 'logs' | 'terminal'>('dashboard')
   const [sheetOpen, setSheetOpen] = useState(false);
+  const { isAuthenticated } = useAuth();
+
+  if (!isAuthenticated) {
+      return <LoginPage />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row font-sans selection:bg-primary/20 relative overflow-hidden">
@@ -143,6 +158,14 @@ function App() {
       <Toaster />
     </div>
   )
+}
+
+function App() {
+    return (
+        <AuthProvider>
+            <MainLayout />
+        </AuthProvider>
+    )
 }
 
 export default App
