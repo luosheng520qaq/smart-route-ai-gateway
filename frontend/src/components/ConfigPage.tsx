@@ -8,20 +8,22 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Save, Plus, Trash2, GripVertical, Brain, AlertOctagon, HeartPulse, ShieldCheck } from 'lucide-react';
-import { AppConfig, fetchConfig, updateConfig } from '@/lib/api';
+import { Save, Plus, Trash2, Brain, HeartPulse, ShieldCheck, Settings, Server, Network, History as HistoryIcon, RotateCcw, Search, Database } from 'lucide-react';
+import { AppConfig, fetchConfig, updateConfig, fetchHistory, rollbackConfig, ConfigHistory } from '@/lib/api';
 import { Setup2FA } from './AuthPage';
 import { ChangePassword } from './ChangePassword';
 import { ChangeUsername } from './ChangeUsername';
 import { useAuth } from '@/lib/auth';
-
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export function ConfigPage() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const { has2FA, checkAuth } = useAuth();
 
   useEffect(() => {
@@ -45,916 +47,595 @@ export function ConfigPage() {
       await updateConfig(config);
       toast.success("配置保存成功");
     } catch (error) {
-      toast.error("配置保存失败");
+      toast.error("配置保存失败: " + (error as any).message);
     }
   };
 
-  const updateModelList = (level: 't1' | 't2' | 't3', index: number, value: string) => {
-    if (!config) return;
-    const newList = [...(level === 't1' ? config.t1_models : level === 't2' ? config.t2_models : config.t3_models)];
-    newList[index] = value;
-    setConfig({
-      ...config,
-      [level === 't1' ? 't1_models' : level === 't2' ? 't2_models' : 't3_models']: newList
-    });
-  };
-
-  const addModel = (level: 't1' | 't2' | 't3') => {
-    if (!config) return;
-    const newList = [...(level === 't1' ? config.t1_models : level === 't2' ? config.t2_models : config.t3_models)];
-    newList.push("");
-    setConfig({
-      ...config,
-      [level === 't1' ? 't1_models' : level === 't2' ? 't2_models' : 't3_models']: newList
-    });
-  };
-
-  const removeModel = (level: 't1' | 't2' | 't3', index: number) => {
-    if (!config) return;
-    const newList = [...(level === 't1' ? config.t1_models : level === 't2' ? config.t2_models : config.t3_models)];
-    newList.splice(index, 1);
-    setConfig({
-      ...config,
-      [level === 't1' ? 't1_models' : level === 't2' ? 't2_models' : 't3_models']: newList
-    });
-  };
-
-  const updateTimeout = (level: 't1' | 't2' | 't3', value: number[]) => {
-    if (!config) return;
-    setConfig({
-      ...config,
-      timeouts: {
-        ...config.timeouts,
-        [level]: value[0]
-      }
-    });
-  };
-
-  const updateStreamTimeout = (level: 't1' | 't2' | 't3', value: number[]) => {
-    if (!config) return;
-    setConfig({
-      ...config,
-      stream_timeouts: {
-        ...(config.stream_timeouts || { "t1": 300000, "t2": 300000, "t3": 300000 }),
-        [level]: value[0]
-      }
-    });
-  };
-
-  const updateRetryRounds = (level: 't1' | 't2' | 't3', value: number[]) => {
-    if (!config) return;
-    setConfig({
-      ...config,
-      retry_rounds: {
-        ...(config.retry_rounds || { "t1": 1, "t2": 1, "t3": 1 }),
-        [level]: value[0]
-      }
-    });
-  };
-
-  const addStatusCode = () => {
-    if (!config) return;
-    setConfig({
-      ...config,
-      retry_config: {
-        ...config.retry_config,
-        status_codes: [...config.retry_config.status_codes, 0]
-      }
-    });
-  };
-
-  const updateStatusCode = (index: number, value: string) => {
-    if (!config) return;
-    const newCodes = [...config.retry_config.status_codes];
-    newCodes[index] = parseInt(value) || 0;
-    setConfig({
-      ...config,
-      retry_config: {
-        ...config.retry_config,
-        status_codes: newCodes
-      }
-    });
-  };
-
-  const removeStatusCode = (index: number) => {
-    if (!config) return;
-    const newCodes = [...config.retry_config.status_codes];
-    newCodes.splice(index, 1);
-    setConfig({
-      ...config,
-      retry_config: {
-        ...config.retry_config,
-        status_codes: newCodes
-      }
-    });
-  };
-
-  const addErrorKeyword = () => {
-    if (!config) return;
-    setConfig({
-      ...config,
-      retry_config: {
-        ...config.retry_config,
-        error_keywords: [...config.retry_config.error_keywords, ""]
-      }
-    });
-  };
-
-  const updateErrorKeyword = (index: number, value: string) => {
-    if (!config) return;
-    const newKeywords = [...config.retry_config.error_keywords];
-    newKeywords[index] = value;
-    setConfig({
-      ...config,
-      retry_config: {
-        ...config.retry_config,
-        error_keywords: newKeywords
-      }
-    });
-  };
-
-  const removeErrorKeyword = (index: number) => {
-    if (!config) return;
-    const newKeywords = [...config.retry_config.error_keywords];
-    newKeywords.splice(index, 1);
-    setConfig({
-      ...config,
-      retry_config: {
-        ...config.retry_config,
-        error_keywords: newKeywords
-      }
-    });
-  };
-
-
-  if (loading || !config) return <div>加载配置中...</div>;
+  if (loading || !config) return <div className="p-8 text-center">加载配置中...</div>;
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto animate-in fade-in duration-500 pb-20">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0">
+    <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-500 pb-20">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-0 border-b pb-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">系统配置</h2>
-          <p className="text-muted-foreground">管理路由策略和上游供应商设置。</p>
+          <h2 className="text-3xl font-bold tracking-tight">配置管理中心</h2>
+          <p className="text-muted-foreground">全功能系统配置与策略管理</p>
         </div>
-        <Button onClick={handleSave} className="gap-2">
-          <Save className="h-4 w-4" /> 保存更改
-        </Button>
+        <div className="flex gap-2">
+           <div className="relative w-64">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input 
+                placeholder="搜索配置项..." 
+                className="pl-8" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+           </div>
+           <HistoryDialog onRollback={loadConfig} />
+           <Button onClick={handleSave} className="gap-2">
+            <Save className="h-4 w-4" /> 保存更改
+          </Button>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>上游供应商 (Upstream Provider)</CardTitle>
-          <CardDescription>配置全局 LLM 供应商 (例如 OpenAI, DeepSeek, Azure)。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-4">
-            <div className="space-y-2">
-              <Label>Base URL (API 地址)</Label>
-              <Input 
-                value={config.upstream_base_url} 
-                onChange={(e) => setConfig({...config, upstream_base_url: e.target.value})} 
-                placeholder="https://api.openai.com/v1" 
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>API Key (密钥)</Label>
-              <Input 
-                type="password"
-                value={config.upstream_api_key} 
-                onChange={(e) => setConfig({...config, upstream_api_key: e.target.value})} 
-                placeholder="sk-..." 
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Gateway API Key (网关访问密钥)</Label>
-              <Input 
-                type="password"
-                value={config.gateway_api_key || ""} 
-                onChange={(e) => setConfig({...config, gateway_api_key: e.target.value})} 
-                placeholder="留空则允许任意 Key 访问" 
-              />
-              <p className="text-sm text-muted-foreground">设置此 Key 后，客户端请求必须携带相同的 Bearer Token 才能通过验证。</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>多供应商配置 (Multi-Provider)</CardTitle>
-          <CardDescription>配置额外的模型供应商。如果在此处定义了 Provider，可以在模型 ID 中使用 `provider_id/model_name` 来指定。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Provider List Editor */}
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <Label>供应商列表 (Providers)</Label>
-              <Button variant="outline" size="sm" onClick={() => {
-                if (!config) return;
-                const newId = `provider_${Object.keys(config.providers || {}).length + 1}`;
-                setConfig({
-                  ...config,
-                  providers: {
-                    ...(config.providers || {}),
-                    [newId]: { base_url: "", api_key: "" }
-                  }
-                });
-              }}>
-                <Plus className="h-4 w-4 mr-1" /> 添加供应商
-              </Button>
-            </div>
-            
-            <div className="space-y-4">
-              {Object.entries(config.providers || {}).map(([id, provider]) => (
-                <div key={id} className="border p-4 rounded-lg space-y-3 relative">
-                  <div className="absolute top-2 right-2">
-                    <Button variant="ghost" size="icon" onClick={() => {
-                       if (!config) return;
-                       const newProviders = { ...config.providers };
-                       delete newProviders[id];
-                       setConfig({ ...config, providers: newProviders });
-                    }}>
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                     <div className="space-y-2">
-                      <Label>Provider ID</Label>
-                      <Input 
-                        value={id}
-                        onChange={(e) => {
-                          if (!config) return;
-                          const newId = e.target.value;
-                          if (newId === id || !newId) return;
-                          
-                          const newProviders = { ...config.providers };
-                          newProviders[newId] = newProviders[id];
-                          delete newProviders[id];
-                          setConfig({ ...config, providers: newProviders });
-                        }}
-                        placeholder="e.g. azure"
-                      />
-                    </div>
-                    <div className="space-y-2 md:col-span-2">
-                       <Label>Base URL</Label>
-                       <Input 
-                         value={provider.base_url}
-                         onChange={(e) => {
-                           if (!config) return;
-                           setConfig({
-                             ...config,
-                             providers: {
-                               ...config.providers,
-                               [id]: { ...provider, base_url: e.target.value }
-                             }
-                           });
-                         }}
-                         placeholder="https://..."
-                       />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>API Key</Label>
-                    <Input 
-                      type="password"
-                      value={provider.api_key}
-                      onChange={(e) => {
-                        if (!config) return;
-                         setConfig({
-                             ...config,
-                             providers: {
-                               ...config.providers,
-                               [id]: { ...provider, api_key: e.target.value }
-                             }
-                           });
-                      }}
-                      placeholder="sk-..."
-                    />
-                  </div>
-                </div>
-              ))}
-              {Object.keys(config.providers || {}).length === 0 && (
-                <div className="text-center text-sm text-muted-foreground py-4">
-                  暂无额外供应商，点击上方按钮添加。
-                </div>
-              )}
-            </div>
-          </div>
-
-           {/* Model Map Editor */}
-           <div className="space-y-4 border-t pt-4">
-            <div className="flex justify-between items-center">
-              <Label>模型映射 (Model Mapping)</Label>
-               <Button variant="outline" size="sm" onClick={() => {
-                if (!config) return;
-                setConfig({
-                  ...config,
-                  model_provider_map: {
-                    ...(config.model_provider_map || {}),
-                    "": ""
-                  }
-                });
-              }}>
-                <Plus className="h-4 w-4 mr-1" /> 添加映射
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">将特定模型 ID 自动路由到指定供应商（无需在 T1/T2/T3 列表加前缀）。</p>
-            
-            <div className="space-y-2">
-              {Object.entries(config.model_provider_map || {}).map(([model, providerId], index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <Input 
-                    className="flex-1"
-                    value={model}
-                    onChange={(e) => {
-                       if (!config) return;
-                       const newMap = { ...config.model_provider_map };
-                       const newVal = newMap[model];
-                       delete newMap[model];
-                       newMap[e.target.value] = newVal;
-                       setConfig({ ...config, model_provider_map: newMap });
-                    }}
-                    placeholder="模型 ID (如 gpt-4)"
-                  />
-                  <span className="text-muted-foreground">→</span>
-                  <select 
-                    className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    value={providerId}
-                    onChange={(e) => {
-                       if (!config) return;
-                       setConfig({
-                         ...config,
-                         model_provider_map: {
-                           ...config.model_provider_map,
-                           [model]: e.target.value
-                         }
-                       });
-                    }}
-                  >
-                    <option value="" disabled>选择供应商</option>
-                    {Object.keys(config.providers || {}).map(pid => (
-                      <option key={pid} value={pid}>{pid}</option>
-                    ))}
-                  </select>
-                   <Button variant="ghost" size="icon" onClick={() => {
-                       if (!config) return;
-                       const newMap = { ...config.model_provider_map };
-                       delete newMap[model];
-                       setConfig({ ...config, model_provider_map: newMap });
-                    }}>
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>默认参数配置 (Default Parameters)</CardTitle>
-          <CardDescription>配置全局和特定模型的默认参数 (如 temperature, top_p)。这有助于适配对参数有特殊要求的上游模型 (如 Kimi)。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-           {/* Global Params */}
-           <div className="space-y-4">
-            <div className="flex justify-between items-center">
-               <Label>全局参数 (Global Params)</Label>
-               <Button variant="outline" size="sm" onClick={() => {
-                 if (!config) return;
-                 setConfig({
-                   ...config,
-                   global_params: { ...(config.global_params || {}), "new_param": 0.7 }
-                 });
-               }}>
-                 <Plus className="h-4 w-4 mr-1" /> 添加参数
-               </Button>
-            </div>
-            
-            <div className="space-y-2">
-               {Object.entries(config.global_params || {}).map(([key, value], index) => (
-                 <div key={index} className="flex items-center gap-2">
-                    <Input 
-                      className="w-1/3"
-                      value={key}
-                      onChange={(e) => {
-                         if (!config) return;
-                         const newParams = { ...config.global_params };
-                         const val = newParams[key];
-                         delete newParams[key];
-                         newParams[e.target.value] = val;
-                         setConfig({ ...config, global_params: newParams });
-                      }}
-                      placeholder="参数名 (如 temperature)"
-                    />
-                    <Input 
-                      className="flex-1"
-                      value={typeof value === 'object' ? JSON.stringify(value) : value}
-                      onChange={(e) => {
-                         if (!config) return;
-                         setConfig({
-                           ...config,
-                           global_params: { ...config.global_params, [key]: e.target.value }
-                         });
-                      }}
-                      onBlur={(e) => {
-                         if (!config) return;
-                         let val: any = e.target.value;
-                         // Try to parse number or boolean
-                         if (!isNaN(Number(val)) && val.trim() !== '') val = Number(val);
-                         if (val === 'true') val = true;
-                         if (val === 'false') val = false;
-                         
-                         setConfig({
-                           ...config,
-                           global_params: { ...config.global_params, [key]: val }
-                         });
-                      }}
-                      placeholder="值"
-                    />
-                     <Button variant="ghost" size="icon" onClick={() => {
-                         if (!config) return;
-                         const newParams = { ...config.global_params };
-                         delete newParams[key];
-                         setConfig({ ...config, global_params: newParams });
-                      }}>
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                 </div>
-               ))}
-               {Object.keys(config.global_params || {}).length === 0 && (
-                 <p className="text-sm text-muted-foreground">暂无全局参数。</p>
-               )}
-            </div>
-          </div>
-
-          {/* Model Specific Params */}
-          <div className="space-y-4 border-t pt-4">
-             <div className="flex justify-between items-center">
-               <Label>特定模型参数 (Model Specific Params)</Label>
-                <Button variant="outline" size="sm" onClick={() => {
-                 if (!config) return;
-                 setConfig({
-                   ...config,
-                   model_params: {
-                     ...(config.model_params || {}),
-                     "model_id": { "param": "value" }
-                   }
-                 });
-               }}>
-                 <Plus className="h-4 w-4 mr-1" /> 添加模型配置
-               </Button>
-            </div>
-            
-             <div className="space-y-4">
-               {Object.entries(config.model_params || {}).map(([modelId, params]) => (
-                 <div key={modelId} className="border p-4 rounded-lg space-y-3 relative">
-                    <div className="absolute top-2 right-2">
-                      <Button variant="ghost" size="icon" onClick={() => {
-                         if (!config) return;
-                         const newModelParams = { ...config.model_params };
-                         delete newModelParams[modelId];
-                         setConfig({ ...config, model_params: newModelParams });
-                      }}>
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>模型 ID</Label>
-                      <Input 
-                        value={modelId}
-                        onChange={(e) => {
-                           if (!config) return;
-                           const newId = e.target.value;
-                           if (newId === modelId || !newId) return;
-                           
-                           const newModelParams = { ...config.model_params };
-                           newModelParams[newId] = newModelParams[modelId];
-                           delete newModelParams[modelId];
-                           setConfig({ ...config, model_params: newModelParams });
-                        }}
-                        placeholder="e.g. kimik2.5"
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label>参数列表 (JSON)</Label>
-                      <JsonEditor 
-                        value={params}
-                        onChange={(val) => {
-                           if (!config) return;
-                           setConfig({
-                             ...config,
-                             model_params: { ...config.model_params, [modelId]: val }
-                           });
-                        }}
-                      />
-                      <p className="text-xs text-muted-foreground">此处保持 JSON 编辑以支持复杂结构。</p>
-                    </div>
-                 </div>
-               ))}
-                {Object.keys(config.model_params || {}).length === 0 && (
-                 <div className="text-center text-sm text-muted-foreground py-4">
-                   暂无特定模型配置。
-                 </div>
-               )}
-             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Brain className="h-5 w-5 text-primary" />
-            <CardTitle>意图分类模型 (Intent Router)</CardTitle>
-          </div>
-          <CardDescription>使用额外的轻量级模型来分析用户意图复杂度 (T1/T2/T3)，而非仅依赖关键词。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <Switch 
-              id="router-enabled" 
-              checked={config.router_config.enabled} 
-              onCheckedChange={(checked) => setConfig({...config, router_config: {...config.router_config, enabled: checked}})}
-            />
-            <Label htmlFor="router-enabled">
-              启用 LLM 意图分析
-              {!config.router_config.enabled && <span className="text-xs text-muted-foreground ml-2">(已关闭：将随机分发到 T1/T2/T3)</span>}
-            </Label>
-          </div>
-          
-          {config.router_config.enabled && (
-            <div className="space-y-4 mt-4 pl-4 border-l-2 border-primary/20">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>分类模型 ID</Label>
-                  <Input 
-                    value={config.router_config.model} 
-                    onChange={(e) => setConfig({...config, router_config: {...config.router_config, model: e.target.value}})} 
-                    placeholder="gpt-3.5-turbo" 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>API Key (若不同)</Label>
-                  <Input 
-                    type="password"
-                    value={config.router_config.api_key} 
-                    onChange={(e) => setConfig({...config, router_config: {...config.router_config, api_key: e.target.value}})} 
-                    placeholder="sk-..." 
-                  />
-                </div>
-              </div>
-               <div className="space-y-2">
-                  <Label>Base URL (若不同)</Label>
-                  <Input 
-                    value={config.router_config.base_url} 
-                    onChange={(e) => setConfig({...config, router_config: {...config.router_config, base_url: e.target.value}})} 
-                    placeholder="https://api.openai.com/v1" 
-                  />
-                </div>
-              <div className="space-y-2">
-                <Label>Prompt 模板</Label>
-                <Textarea 
-                  className="h-32 font-mono text-xs"
-                  value={config.router_config.prompt_template} 
-                  onChange={(e) => setConfig({...config, router_config: {...config.router_config, prompt_template: e.target.value}})} 
-                />
-                <p className="text-xs text-muted-foreground">使用 {"{history}"} 占位符代表最近的用户对话历史。</p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <HeartPulse className="h-5 w-5 text-red-500" />
-            <CardTitle>健康检查与恢复 (Health Check & Recovery)</CardTitle>
-          </div>
-          <CardDescription>配置模型的自动恢复机制，防止因偶发错误导致模型被永久屏蔽。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-4">
-            <div className="flex justify-between">
-              <Label>错误分值衰减速率 (Decay Rate)</Label>
-              <span className="text-sm text-muted-foreground">
-                {config.health_check_config?.decay_rate ?? 0.05} 分/分钟
-              </span>
-            </div>
-            <Slider 
-              value={[config.health_check_config?.decay_rate ?? 0.05]} 
-              max={1.0} 
-              step={0.05} 
-              onValueChange={(val) => setConfig({
-                ...config,
-                health_check_config: {
-                  ...config.health_check_config,
-                  decay_rate: val[0]
-                }
-              })} 
-            />
-            <p className="text-xs text-muted-foreground">
-              每分钟自动减少的失败分值。例如设置为 0.05，则 1 分的错误需要 20 分钟才能完全恢复（不考虑成功调用的回血）。
-              值越大恢复越快。
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-           <div className="flex items-center gap-2">
-            <AlertOctagon className="h-5 w-5 text-orange-500" />
-            <CardTitle>故障重试策略 (Failover Conditions)</CardTitle>
-          </div>
-          <CardDescription>当上游返回以下状态码或包含特定关键词时，自动切换到下一个模型。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-2">
-             <div className="flex justify-between items-center">
-                <Label>触发重试的状态码 (Status Codes)</Label>
-                <Button variant="outline" size="sm" onClick={addStatusCode}>
-                  <Plus className="h-4 w-4 mr-1" /> 添加
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {config.retry_config.status_codes.map((code, index) => (
-                  <div key={index} className="flex items-center gap-1">
-                    <Input 
-                      type="number"
-                      className="w-20" 
-                      value={code} 
-                      onChange={(e) => updateStatusCode(index, e.target.value)}
-                    />
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeStatusCode(index)}>
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-          </div>
-
-          <div className="space-y-2">
-             <div className="flex justify-between items-center">
-                <Label>触发重试的错误关键词 (Error Keywords)</Label>
-                <Button variant="outline" size="sm" onClick={addErrorKeyword}>
-                  <Plus className="h-4 w-4 mr-1" /> 添加
-                </Button>
-              </div>
-              <div className="space-y-2">
-                {config.retry_config.error_keywords.map((keyword, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <Input 
-                      value={keyword} 
-                      onChange={(e) => updateErrorKeyword(index, e.target.value)}
-                      placeholder="e.g. rate limit"
-                    />
-                    <Button variant="ghost" size="icon" onClick={() => removeErrorKeyword(index)}>
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Tabs defaultValue="t1" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="t1">Level 1 (快速)</TabsTrigger>
-          <TabsTrigger value="t2">Level 2 (智能)</TabsTrigger>
-          <TabsTrigger value="t3">Level 3 (专家)</TabsTrigger>
-          <TabsTrigger value="security">安全设置</TabsTrigger>
+      <Tabs defaultValue="general" className="w-full flex flex-col md:flex-row gap-6">
+        <TabsList className="flex md:flex-col h-auto justify-start w-full md:w-48 bg-transparent p-0 gap-2">
+            <TabItem value="general" icon={<Settings className="w-4 h-4"/>} label="基础设置" />
+            <TabItem value="models" icon={<Server className="w-4 h-4"/>} label="模型管理" />
+            <TabItem value="providers" icon={<Database className="w-4 h-4"/>} label="供应商" />
+            <TabItem value="resilience" icon={<HeartPulse className="w-4 h-4"/>} label="稳定性" />
+            <TabItem value="router" icon={<Brain className="w-4 h-4"/>} label="意图路由" />
+            <TabItem value="params" icon={<Network className="w-4 h-4"/>} label="参数调优" />
+            <TabItem value="security" icon={<ShieldCheck className="w-4 h-4"/>} label="安全设置" />
         </TabsList>
-        
-        {['t1', 't2', 't3'].map((level) => (
-          <TabsContent key={level} value={level}>
-            <Card>
-              <CardHeader>
-                <CardTitle>{level.toUpperCase()} 路由策略</CardTitle>
-                <CardDescription>
-                  为 {level === 't1' ? '简单查询' : level === 't2' ? '通用任务' : '复杂推理'} 配置模型列表和超时时间。
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                
-                <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <Label>首 Token 超时 (Time-to-First-Token)</Label>
-                    <span className="text-sm text-muted-foreground">{config.timeouts[level]} ms</span>
-                  </div>
-                  <Slider 
-                    value={[config.timeouts[level]]} 
-                    max={60000} 
-                    step={1000} 
-                    onValueChange={(val) => updateTimeout(level as any, val)} 
-                  />
-                </div>
 
+        <div className="flex-1 space-y-6">
+            <TabsContent value="general" className="m-0 space-y-6">
+                <GeneralSettings config={config} setConfig={setConfig} />
+            </TabsContent>
+            
+            <TabsContent value="models" className="m-0 space-y-6">
+                <ModelSettings config={config} setConfig={setConfig} />
+            </TabsContent>
+
+            <TabsContent value="providers" className="m-0 space-y-6">
+                <ProviderSettings config={config} setConfig={setConfig} />
+            </TabsContent>
+
+            <TabsContent value="resilience" className="m-0 space-y-6">
+                <ResilienceSettings config={config} setConfig={setConfig} />
+            </TabsContent>
+
+            <TabsContent value="router" className="m-0 space-y-6">
+                <RouterSettings config={config} setConfig={setConfig} />
+            </TabsContent>
+
+             <TabsContent value="params" className="m-0 space-y-6">
+                <ParamSettings config={config} setConfig={setConfig} />
+            </TabsContent>
+
+            <TabsContent value="security" className="m-0 space-y-6">
+                <SecuritySettings config={config} setConfig={setConfig} has2FA={has2FA} checkAuth={checkAuth} />
+            </TabsContent>
+        </div>
+      </Tabs>
+    </div>
+  );
+}
+
+function TabItem({ value, icon, label }: { value: string, icon: any, label: string }) {
+    return (
+        <TabsTrigger 
+            value={value}
+            className="w-full justify-start gap-2 px-4 py-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all"
+        >
+            {icon}
+            {label}
+        </TabsTrigger>
+    )
+}
+
+// --- Sub-Components ---
+
+function GeneralSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>基础设置</CardTitle>
+                <CardDescription>系统全局参数配置</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
                 <div className="space-y-2">
-                   <Label>本层级路由策略 (Routing Strategy)</Label>
-                   <Select 
-                     value={config.routing_strategies?.[level] || "sequential"} 
-                     onValueChange={(val) => setConfig({
-                        ...config, 
-                        routing_strategies: {
-                            ...(config.routing_strategies || {t1: "sequential", t2: "sequential", t3: "sequential"}),
-                            [level]: val
-                        }
-                     })}
-                   >
-                     <SelectTrigger>
-                       <SelectValue placeholder="选择路由策略" />
-                     </SelectTrigger>
-                     <SelectContent>
-                       <SelectItem value="sequential">顺序模式 (Sequential)</SelectItem>
-                       <SelectItem value="random">随机模式 (Random)</SelectItem>
-                       <SelectItem value="adaptive">自适应模式 (Adaptive)</SelectItem>
-                     </SelectContent>
-                   </Select>
-                   <p className="text-xs text-muted-foreground">
-                     顺序模式按列表优先；随机模式完全随机；自适应模式根据失败率调整权重。
-                   </p>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <Label>完整生成超时 (Total Generation Timeout)</Label>
-                    <span className="text-sm text-muted-foreground">
-                      {(config.stream_timeouts?.[level] ?? 300000) / 1000} s
-                    </span>
-                  </div>
-                  <Slider 
-                    value={[config.stream_timeouts?.[level] ?? 300000]} 
-                    max={600000} 
-                    step={5000} 
-                    onValueChange={(val) => updateStreamTimeout(level as any, val)} 
-                  />
-                  <p className="text-xs text-muted-foreground">允许模型生成回复的最大时长。若超过此时间仍未完成，将强制断开并尝试下一个模型。</p>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <Label>模型轮询轮次 (Retry Rounds)</Label>
-                    <span className="text-sm text-muted-foreground">
-                      {config.retry_rounds?.[level] ?? 1} 轮
-                    </span>
-                  </div>
-                  <Slider 
-                    value={[config.retry_rounds?.[level] ?? 1]} 
-                    max={5} 
-                    step={1} 
-                    min={1}
-                    onValueChange={(val) => updateRetryRounds(level as any, val)} 
-                  />
-                  <p className="text-xs text-muted-foreground">当所有模型都失败时，重新从头开始尝试的次数。</p>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <Label>模型优先级列表 (按顺序尝试)</Label>
-                    <Button variant="outline" size="sm" onClick={() => addModel(level as any)}>
-                      <Plus className="h-4 w-4 mr-1" /> 添加模型
-                    </Button>
-                  </div>
-                  <div className="space-y-2 mt-2">
-                    {(level === 't1' ? config.t1_models : level === 't2' ? config.t2_models : config.t3_models).map((model, index) => (
-                      <div key={index} className="flex items-center gap-2">
-                        <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
-                        <Input 
-                          value={model} 
-                          onChange={(e) => updateModelList(level as any, index, e.target.value)}
-                          placeholder="模型 ID (例如 gpt-3.5-turbo)"
+                    <Label>日志保留天数</Label>
+                    <div className="flex items-center gap-4">
+                        <Slider 
+                            value={[config.general.log_retention_days]} 
+                            min={1} max={365} step={1}
+                            onValueChange={(val) => setConfig({...config, general: {...config.general, log_retention_days: val[0]}})}
+                            className="flex-1"
                         />
-                        <Button variant="ghost" size="icon" onClick={() => removeModel(level as any, index)}>
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
+                        <span className="w-12 text-center">{config.general.log_retention_days} 天</span>
+                    </div>
                 </div>
+                 <div className="space-y-2">
+                    <Label>Gateway API Key</Label>
+                    <Input 
+                        type="password"
+                        value={config.general.gateway_api_key}
+                        onChange={(e) => setConfig({...config, general: {...config.general, gateway_api_key: e.target.value}})}
+                        placeholder="留空允许所有访问"
+                    />
+                    <p className="text-xs text-muted-foreground">用于保护 OpenAI 接口访问。</p>
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
 
-              </CardContent>
-            </Card>
-          </TabsContent>
-        ))}
+function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
+    const updateList = (level: 't1' | 't2' | 't3', list: string[]) => {
+        setConfig({...config, models: {...config.models, [level]: list}});
+    };
 
-        <TabsContent value="security" className="space-y-6">
+    return (
+        <Tabs defaultValue="t1" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="t1">T1 (快速)</TabsTrigger>
+                <TabsTrigger value="t2">T2 (通用)</TabsTrigger>
+                <TabsTrigger value="t3">T3 (高智商)</TabsTrigger>
+            </TabsList>
+
+            {['t1', 't2', 't3'].map((level) => (
+                <TabsContent key={level} value={level} className="mt-4">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="uppercase">{level} 模型池</CardTitle>
+                            <CardDescription>
+                                {level === 't1' ? '快速/低成本模型' : level === 't2' ? '通用智能模型' : '高智商/复杂任务模型'}
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <Label>路由策略</Label>
+                                <Select 
+                                    value={config.models.strategies[level] || "sequential"}
+                                    onValueChange={(val) => setConfig({
+                                        ...config, 
+                                        models: {
+                                            ...config.models, 
+                                            strategies: {...config.models.strategies, [level]: val}
+                                        }
+                                    })}
+                                >
+                                    <SelectTrigger className="w-[180px]">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="sequential">顺序优先</SelectItem>
+                                        <SelectItem value="random">随机负载</SelectItem>
+                                        <SelectItem value="adaptive">自适应(错误率)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                {config.models[level as 't1'|'t2'|'t3'].map((model, idx) => (
+                                    <div key={idx} className="flex gap-2">
+                                        <Input 
+                                            value={model}
+                                            onChange={(e) => {
+                                                const newList = [...config.models[level as 't1'|'t2'|'t3']];
+                                                newList[idx] = e.target.value;
+                                                updateList(level as any, newList);
+                                            }}
+                                        />
+                                        <Button variant="ghost" size="icon" onClick={() => {
+                                            const newList = [...config.models[level as 't1'|'t2'|'t3']];
+                                            newList.splice(idx, 1);
+                                            updateList(level as any, newList);
+                                        }}>
+                                            <Trash2 className="h-4 w-4 text-red-500"/>
+                                        </Button>
+                                    </div>
+                                ))}
+                                <Button variant="outline" size="sm" onClick={() => {
+                                    const newList = [...config.models[level as 't1'|'t2'|'t3'], ""];
+                                    updateList(level as any, newList);
+                                }}>
+                                    <Plus className="h-4 w-4 mr-1"/> 添加模型
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            ))}
+        </Tabs>
+    )
+}
+
+function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
+    return (
+        <div className="space-y-6">
             <Card>
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <ShieldCheck className="h-5 w-5 text-sky-500" />
-                        安全设置
-                    </CardTitle>
-                    <CardDescription>
-                        配置访问控制和身份验证
-                    </CardDescription>
+                    <CardTitle>默认上游 (Upstream)</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                    {/* Gateway Key */}
-                    <div className="space-y-2">
-                        <Label>API 访问密钥 (Gateway API Key)</Label>
-                        <div className="flex gap-2">
-                            <Input 
-                                type="password"
-                                value={config?.gateway_api_key || ''} 
-                                onChange={(e) => setConfig(config ? {...config, gateway_api_key: e.target.value} : null)}
-                                placeholder="未设置 (允许所有访问)"
-                            />
+                <CardContent className="space-y-4">
+                    <div className="grid gap-2">
+                        <Label>Base URL</Label>
+                        <Input 
+                            value={config.providers.upstream.base_url}
+                            onChange={(e) => setConfig({...config, providers: {...config.providers, upstream: {...config.providers.upstream, base_url: e.target.value}}})}
+                        />
+                    </div>
+                    <div className="grid gap-2">
+                        <Label>API Key</Label>
+                        <Input 
+                            type="password"
+                            value={config.providers.upstream.api_key}
+                            onChange={(e) => setConfig({...config, providers: {...config.providers, upstream: {...config.providers.upstream, api_key: e.target.value}}})}
+                        />
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle>自定义供应商 (Custom Providers)</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {Object.entries(config.providers.custom).map(([key, provider]) => (
+                        <div key={key} className="border p-4 rounded relative space-y-2">
+                             <Button variant="ghost" size="icon" className="absolute top-2 right-2" onClick={() => {
+                                const newCustom = {...config.providers.custom};
+                                delete newCustom[key];
+                                setConfig({...config, providers: {...config.providers, custom: newCustom}});
+                            }}>
+                                <Trash2 className="h-4 w-4 text-red-500"/>
+                            </Button>
+                            <div className="grid gap-2">
+                                <Label>Provider ID</Label>
+                                <Input value={key} disabled />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Base URL</Label>
+                                <Input 
+                                    value={provider.base_url}
+                                    onChange={(e) => setConfig({
+                                        ...config,
+                                        providers: {
+                                            ...config.providers,
+                                            custom: {
+                                                ...config.providers.custom,
+                                                [key]: {...provider, base_url: e.target.value}
+                                            }
+                                        }
+                                    })}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>API Key</Label>
+                                <Input 
+                                    type="password"
+                                    value={provider.api_key}
+                                    onChange={(e) => setConfig({
+                                        ...config,
+                                        providers: {
+                                            ...config.providers,
+                                            custom: {
+                                                ...config.providers.custom,
+                                                [key]: {...provider, api_key: e.target.value}
+                                            }
+                                        }
+                                    })}
+                                />
+                            </div>
                         </div>
-                        <p className="text-xs text-muted-foreground">用于保护 `/v1/chat/completions` 等 OpenAI 兼容接口。</p>
+                    ))}
+                    <Button variant="outline" onClick={() => {
+                        const id = prompt("输入 Provider ID (如 azure):");
+                        if(id) {
+                            setConfig({
+                                ...config,
+                                providers: {
+                                    ...config.providers,
+                                    custom: {
+                                        ...config.providers.custom,
+                                        [id]: {base_url: "", api_key: ""}
+                                    }
+                                }
+                            })
+                        }
+                    }}>
+                        <Plus className="h-4 w-4 mr-1"/> 添加供应商
+                    </Button>
+                </CardContent>
+            </Card>
+        </div>
+    )
+}
+
+function ResilienceSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
+    return (
+        <div className="space-y-6">
+            <Card>
+                <CardHeader><CardTitle>超时设置 (Timeouts)</CardTitle></CardHeader>
+                <CardContent className="space-y-6">
+                     {['t1', 't2', 't3'].map(level => (
+                         <div key={level} className="space-y-2">
+                             <Label className="uppercase">{level} 层级</Label>
+                             <div className="grid grid-cols-2 gap-4">
+                                 <div>
+                                     <span className="text-xs text-muted-foreground">连接/首字超时 (ms)</span>
+                                     <Input 
+                                        type="number" 
+                                        value={config.timeouts.connect[level] || 5000}
+                                        onChange={(e) => setConfig({
+                                            ...config,
+                                            timeouts: {
+                                                ...config.timeouts,
+                                                connect: {...config.timeouts.connect, [level]: parseInt(e.target.value)}
+                                            }
+                                        })}
+                                     />
+                                 </div>
+                                 <div>
+                                     <span className="text-xs text-muted-foreground">生成超时 (ms)</span>
+                                     <Input 
+                                        type="number" 
+                                        value={config.timeouts.generation[level] || 300000}
+                                        onChange={(e) => setConfig({
+                                            ...config,
+                                            timeouts: {
+                                                ...config.timeouts,
+                                                generation: {...config.timeouts.generation, [level]: parseInt(e.target.value)}
+                                            }
+                                        })}
+                                     />
+                                 </div>
+                             </div>
+                         </div>
+                     ))}
+                </CardContent>
+            </Card>
+            
+            <Card>
+                <CardHeader><CardTitle>重试策略</CardTitle></CardHeader>
+                <CardContent className="space-y-6">
+                    <div className="flex items-center justify-between border-b pb-4">
+                        <div className="space-y-0.5">
+                            <Label>空响应重试 (Retry on Empty)</Label>
+                            <p className="text-xs text-muted-foreground">当上游返回空内容时触发重试</p>
+                        </div>
+                        <Switch
+                            checked={config.retries.conditions.retry_on_empty}
+                            onCheckedChange={(c) => setConfig({
+                                ...config,
+                                retries: {
+                                    ...config.retries,
+                                    conditions: {
+                                        ...config.retries.conditions,
+                                        retry_on_empty: c
+                                    }
+                                }
+                            })}
+                        />
                     </div>
 
-                    <div className="border-t pt-4">
-                        <h3 className="text-sm font-medium mb-4">账户安全</h3>
-
-                        {/* Change Username Section */}
-                        <div className="flex items-center justify-between p-4 border rounded-lg bg-slate-50 mb-4">
-                            <div>
-                                <div className="font-medium">修改用户名</div>
-                                <div className="text-sm text-muted-foreground">
-                                    修改当前账户的登录用户名。
-                                </div>
-                            </div>
-                            <div>
-                                <Dialog>
-                                    <DialogTrigger asChild>
-                                        <Button variant="outline">修改用户名</Button>
-                                    </DialogTrigger>
-                                    <DialogContent>
-                                        <DialogHeader>
-                                            <DialogTitle>修改用户名</DialogTitle>
-                                        </DialogHeader>
-                                        <ChangeUsername />
-                                    </DialogContent>
-                                </Dialog>
-                            </div>
+                    <div className="space-y-2">
+                        <Label>状态码 (Status Codes)</Label>
+                        <div className="flex flex-wrap gap-2">
+                            {config.retries.conditions.status_codes.map((code, i) => (
+                                <Badge key={i} variant="secondary" className="gap-2">
+                                    {code}
+                                    <span className="cursor-pointer hover:text-red-500" onClick={() => {
+                                        const newCodes = [...config.retries.conditions.status_codes];
+                                        newCodes.splice(i, 1);
+                                        setConfig({...config, retries: {...config.retries, conditions: {...config.retries.conditions, status_codes: newCodes}}});
+                                    }}>×</span>
+                                </Badge>
+                            ))}
+                            <Button variant="ghost" size="sm" onClick={() => {
+                                const code = prompt("输入状态码:");
+                                if(code) {
+                                    setConfig({...config, retries: {...config.retries, conditions: {...config.retries.conditions, status_codes: [...config.retries.conditions.status_codes, parseInt(code)]}}});
+                                }
+                            }}>+</Button>
                         </div>
-                        
-                        {/* Change Password Section */}
-                        <div className="flex items-center justify-between p-4 border rounded-lg bg-slate-50 mb-4">
-                            <div>
-                                <div className="font-medium">修改密码</div>
-                                <div className="text-sm text-muted-foreground">
-                                    定期修改密码以保护账户安全。
-                                </div>
-                            </div>
-                            <div>
-                                <Dialog>
-                                    <DialogTrigger asChild>
-                                        <Button variant="outline">修改密码</Button>
-                                    </DialogTrigger>
-                                    <DialogContent>
-                                        <DialogHeader>
-                                            <DialogTitle>修改密码</DialogTitle>
-                                        </DialogHeader>
-                                        <ChangePassword />
-                                    </DialogContent>
-                                </Dialog>
-                            </div>
-                        </div>
+                    </div>
 
-                        {/* 2FA Section */}
-                        <div className="flex items-center justify-between p-4 border rounded-lg bg-slate-50">
-                            <div>
-                                <div className="font-medium">两步验证 (2FA)</div>
-                                <div className="text-sm text-muted-foreground">
-                                    {has2FA ? "已启用。登录时需要输入动态验证码。" : "未启用。建议启用以提高账户安全性。"}
-                                </div>
-                            </div>
-                            <div>
-                                {has2FA ? (
-                                    <Button variant="outline" disabled>已启用</Button>
-                                ) : (
-                                    <Dialog>
-                                        <DialogTrigger asChild>
-                                            <Button>启用 2FA</Button>
-                                        </DialogTrigger>
-                                        <DialogContent>
-                                            <DialogHeader>
-                                                <DialogTitle>设置两步验证</DialogTitle>
-                                            </DialogHeader>
-                                            <Setup2FA onComplete={() => {
-                                                checkAuth();
-                                                // Close dialog logic handled by Radix usually or state
-                                            }} />
-                                        </DialogContent>
-                                    </Dialog>
-                                )}
-                            </div>
+                    <div className="space-y-2">
+                        <Label>错误关键词 (Error Keywords)</Label>
+                        <div className="flex flex-wrap gap-2">
+                            {config.retries.conditions.error_keywords.map((kw, i) => (
+                                <Badge key={i} variant="outline" className="gap-2">
+                                    {kw}
+                                    <span className="cursor-pointer hover:text-red-500" onClick={() => {
+                                        const newKw = [...config.retries.conditions.error_keywords];
+                                        newKw.splice(i, 1);
+                                        setConfig({...config, retries: {...config.retries, conditions: {...config.retries.conditions, error_keywords: newKw}}});
+                                    }}>×</span>
+                                </Badge>
+                            ))}
+                            <Button variant="ghost" size="sm" onClick={() => {
+                                const kw = prompt("输入错误关键词:");
+                                if(kw) {
+                                    setConfig({...config, retries: {...config.retries, conditions: {...config.retries.conditions, error_keywords: [...config.retries.conditions.error_keywords, kw]}}});
+                                }
+                            }}>+</Button>
                         </div>
                     </div>
                 </CardContent>
             </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
+        </div>
+    )
+}
+
+function RouterSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
+    return (
+        <Card>
+            <CardHeader><CardTitle>意图路由配置</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+                <div className="flex items-center gap-2">
+                    <Switch 
+                        checked={config.router.enabled}
+                        onCheckedChange={(c) => setConfig({...config, router: {...config.router, enabled: c}})}
+                    />
+                    <Label>启用 LLM 路由</Label>
+                </div>
+                {config.router.enabled && (
+                    <>
+                        <div className="grid gap-2">
+                            <Label>路由模型</Label>
+                            <Input 
+                                value={config.router.model}
+                                onChange={(e) => setConfig({...config, router: {...config.router, model: e.target.value}})}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label>Prompt 模板</Label>
+                            <Textarea 
+                                className="h-32 font-mono text-xs"
+                                value={config.router.prompt_template}
+                                onChange={(e) => setConfig({...config, router: {...config.router, prompt_template: e.target.value}})}
+                            />
+                        </div>
+                    </>
+                )}
+            </CardContent>
+        </Card>
+    )
+}
+
+function ParamSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
+    return (
+        <div className="space-y-6">
+            <Card>
+                <CardHeader><CardTitle>全局参数</CardTitle></CardHeader>
+                <CardContent>
+                    <JsonEditor 
+                        value={config.params.global_params}
+                        onChange={(v) => setConfig({...config, params: {...config.params, global_params: v}})}
+                    />
+                </CardContent>
+            </Card>
+             <Card>
+                <CardHeader><CardTitle>模型特定参数</CardTitle></CardHeader>
+                <CardContent>
+                    <JsonEditor 
+                        value={config.params.model_params}
+                        onChange={(v) => setConfig({...config, params: {...config.params, model_params: v}})}
+                    />
+                </CardContent>
+            </Card>
+        </div>
+    )
+}
+
+function SecuritySettings({ has2FA, checkAuth }: any) {
+    return (
+        <Card>
+            <CardHeader><CardTitle>账户安全</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+                <div className="flex justify-between items-center border p-4 rounded">
+                    <div>
+                        <div className="font-medium">修改用户名</div>
+                        <div className="text-sm text-muted-foreground">修改当前登录用户名</div>
+                    </div>
+                    <Dialog>
+                        <DialogTrigger asChild><Button variant="outline">修改</Button></DialogTrigger>
+                        <DialogContent><ChangeUsername /></DialogContent>
+                    </Dialog>
+                </div>
+
+                <div className="flex justify-between items-center border p-4 rounded">
+                    <div>
+                        <div className="font-medium">修改密码</div>
+                        <div className="text-sm text-muted-foreground">定期修改密码</div>
+                    </div>
+                    <Dialog>
+                        <DialogTrigger asChild><Button variant="outline">修改</Button></DialogTrigger>
+                        <DialogContent><ChangePassword /></DialogContent>
+                    </Dialog>
+                </div>
+                 <div className="flex justify-between items-center border p-4 rounded">
+                    <div>
+                        <div className="font-medium">两步验证 (2FA)</div>
+                        <div className="text-sm text-muted-foreground">{has2FA ? "已启用" : "未启用"}</div>
+                    </div>
+                    {has2FA ? <Button disabled>已启用</Button> : (
+                         <Dialog>
+                            <DialogTrigger asChild><Button>启用</Button></DialogTrigger>
+                            <DialogContent><Setup2FA onComplete={checkAuth}/></DialogContent>
+                        </Dialog>
+                    )}
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
+
+function HistoryDialog({ onRollback }: { onRollback: () => void }) {
+    const [history, setHistory] = useState<ConfigHistory[]>([]);
+    const [open, setOpen] = useState(false);
+
+    useEffect(() => {
+        if(open) {
+            fetchHistory().then(setHistory);
+        }
+    }, [open]);
+
+    const handleRollback = async (id: number) => {
+        if(confirm("确定要回滚到此版本配置吗？")) {
+            try {
+                await rollbackConfig(id);
+                toast.success("回滚成功");
+                setOpen(false);
+                onRollback();
+            } catch(e) {
+                toast.error("回滚失败");
+            }
+        }
+    }
+
+    return (
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+                <Button variant="outline" className="gap-2"><HistoryIcon className="h-4 w-4"/> 历史记录</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl">
+                <DialogHeader>
+                    <DialogTitle>配置变更历史</DialogTitle>
+                </DialogHeader>
+                <ScrollArea className="h-[400px]">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>时间</TableHead>
+                                <TableHead>用户</TableHead>
+                                <TableHead>变更原因</TableHead>
+                                <TableHead>操作</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {history.map((h) => (
+                                <TableRow key={h.id}>
+                                    <TableCell>{new Date(h.timestamp + "Z").toLocaleString()}</TableCell>
+                                    <TableCell>{h.user}</TableCell>
+                                    <TableCell>{h.change_reason}</TableCell>
+                                    <TableCell>
+                                        <Button size="sm" variant="ghost" onClick={() => handleRollback(h.id)}>
+                                            <RotateCcw className="h-4 w-4 mr-1"/> 回滚
+                                        </Button>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </ScrollArea>
+            </DialogContent>
+        </Dialog>
+    )
 }
 
 function JsonEditor({ value, onChange }: { value: any, onChange: (val: any) => void }) {
@@ -966,7 +647,7 @@ function JsonEditor({ value, onChange }: { value: any, onChange: (val: any) => v
 
   return (
     <Textarea 
-      className="font-mono text-xs h-20"
+      className="font-mono text-xs h-40"
       value={text}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => {

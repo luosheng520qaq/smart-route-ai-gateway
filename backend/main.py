@@ -1,4 +1,5 @@
 from typing import Optional
+from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks, Security, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +23,7 @@ security = HTTPBearer(auto_error=False)
 
 async def verify_gateway_key(credentials: HTTPAuthorizationCredentials = Security(security)):
     config = config_manager.get_config()
-    gateway_key = config.gateway_api_key
+    gateway_key = config.general.gateway_api_key
     
     # If no key configured, allow all
     if not gateway_key:
@@ -53,7 +54,7 @@ async def lifespan(app: FastAPI):
     # Prune logs on startup based on config
     try:
         config = config_manager.get_config()
-        days = config.log_retention_days
+        days = config.general.log_retention_days
         await prune_logs(days)
         print(f"[INFO] Pruned logs older than {days} days on startup.")
     except Exception as e:
@@ -92,7 +93,7 @@ async def chat_completions(request: ChatCompletionRequest, background_tasks: Bac
 @app.get("/v1/models", dependencies=[Depends(verify_gateway_key)])
 async def list_models():
     config = config_manager.get_config()
-    all_models = set(config.t1_models + config.t2_models + config.t3_models)
+    all_models = set(config.models.t1 + config.models.t2 + config.models.t3)
     
     return {
         "object": "list",
@@ -115,7 +116,7 @@ from auth import (
     get_password_hash, generate_totp_secret, get_totp_uri, verify_totp, 
     ACCESS_TOKEN_EXPIRE_MINUTES
 )
-from database import init_db, get_db, RequestLog, User, AsyncSession, prune_logs
+from database import init_db, get_db, RequestLog, User, AsyncSession, prune_logs, ConfigHistory
 
 # --- Auth Routes ---
 @app.post("/api/auth/login", response_model=Token)
@@ -276,9 +277,63 @@ async def get_config():
 async def get_model_stats():
     return router_engine.get_all_stats()
 
-@app.post("/api/config", dependencies=[Depends(get_current_active_user)])
-async def update_config(config: AppConfig):
+@app.get("/api/config/history", dependencies=[Depends(get_current_active_user)])
+async def get_config_history(limit: int = 10, db: AsyncSession = Depends(get_db)):
+    stmt = select(ConfigHistory).order_by(desc(ConfigHistory.timestamp)).limit(limit)
+    result = await db.execute(stmt)
+    history = result.scalars().all()
+    return history
+
+class RollbackRequest(BaseModel):
+    history_id: int
+
+@app.post("/api/config/rollback", dependencies=[Depends(get_current_active_user)])
+async def rollback_config(
+    req: RollbackRequest, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    # Get history
+    result = await db.execute(select(ConfigHistory).where(ConfigHistory.id == req.history_id))
+    entry = result.scalars().first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="History entry not found")
+    
     try:
+        data = json.loads(entry.config_json)
+        # Restore
+        config_manager.update_config(data)
+        router_engine.cleanup_stats()
+        
+        # Log this rollback as a new history entry
+        new_history = ConfigHistory(
+            config_json=entry.config_json,
+            change_reason=f"Rollback to ID {req.history_id}",
+            user=current_user.username
+        )
+        db.add(new_history)
+        await db.commit()
+        
+        return {"status": "success", "message": "Config restored", "config": config_manager.get_config()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Rollback failed: {e}")
+
+@app.post("/api/config", dependencies=[Depends(get_current_active_user)])
+async def update_config(
+    config: AppConfig, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    try:
+        # Save History
+        history = ConfigHistory(
+            config_json=config.model_dump_json(),
+            change_reason="User Update",
+            user=current_user.username
+        )
+        db.add(history)
+        await db.commit()
+
         config_manager.update_config(config.model_dump())
         # Cleanup stats for removed models
         router_engine.cleanup_stats()

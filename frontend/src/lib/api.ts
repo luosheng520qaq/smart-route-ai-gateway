@@ -35,6 +35,7 @@ export interface RouterConfig {
 export interface RetryConfig {
   status_codes: number[];
   error_keywords: string[];
+  retry_on_empty: boolean;
 }
 
 export interface HealthCheckConfig {
@@ -46,24 +47,61 @@ export interface ProviderConfig {
   api_key: string;
 }
 
-export interface AppConfig {
-  t1_models: string[];
-  t2_models: string[];
-  t3_models: string[];
-  timeouts: Record<string, number>;
-  stream_timeouts: Record<string, number>;
-  retry_rounds: Record<string, number>;
-  upstream_base_url: string;
-  upstream_api_key: string;
-  gateway_api_key: string; // New field
-  routing_strategies: Record<string, string>; // New field: t1/t2/t3 -> sequential/random/adaptive
-  router_config: RouterConfig;
-  retry_config: RetryConfig;
-  health_check_config: HealthCheckConfig;
+export interface GeneralConfig {
+  log_retention_days: number;
+  gateway_api_key: string;
+}
+
+export interface ModelsConfig {
+  t1: string[];
+  t2: string[];
+  t3: string[];
+  strategies: Record<string, string>;
+}
+
+export interface TimeoutConfig {
+  connect: Record<string, number>;
+  generation: Record<string, number>;
+}
+
+export interface RetrySettings {
+  rounds: Record<string, number>;
+  conditions: RetryConfig;
+}
+
+export interface UpstreamConfig {
+    base_url: string;
+    api_key: string;
+}
+
+export interface ProvidersConfig {
+  upstream: UpstreamConfig;
+  custom: Record<string, ProviderConfig>;
+  map: Record<string, string>;
+}
+
+export interface ParameterConfig {
   global_params: Record<string, any>;
   model_params: Record<string, Record<string, any>>;
-  providers: Record<string, ProviderConfig>;
-  model_provider_map: Record<string, string>;
+}
+
+export interface AppConfig {
+  general: GeneralConfig;
+  models: ModelsConfig;
+  timeouts: TimeoutConfig;
+  retries: RetrySettings;
+  providers: ProvidersConfig;
+  router: RouterConfig;
+  health: HealthCheckConfig;
+  params: ParameterConfig;
+}
+
+export interface ConfigHistory {
+    id: number;
+    timestamp: string;
+    config_json: string;
+    change_reason: string;
+    user: string;
 }
 
 export interface RequestLog {
@@ -111,6 +149,16 @@ export const updateConfig = async (config: AppConfig) => {
   const response = await api.post('/api/config', config);
   return response.data;
 };
+
+export const fetchHistory = async (limit = 10) => {
+    const response = await api.get<ConfigHistory[]>(`/api/config/history?limit=${limit}`);
+    return response.data;
+}
+
+export const rollbackConfig = async (historyId: number) => {
+    const response = await api.post<{status: string, message: string, config: AppConfig}>('/api/config/rollback', { history_id: historyId });
+    return response.data;
+}
 
 export interface LogFilters {
   level?: string;

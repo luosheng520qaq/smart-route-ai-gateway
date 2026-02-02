@@ -41,6 +41,15 @@ class RequestLog(Base):
     completion_tokens = Column(Integer, default=0)
     token_source = Column(String, default="upstream") # upstream / local
 
+class ConfigHistory(Base):
+    __tablename__ = "config_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    config_json = Column(Text) # Store full config as JSON
+    change_reason = Column(String, nullable=True)
+    user = Column(String, nullable=True) # Who made the change
+
 class User(Base):
     __tablename__ = "users"
 

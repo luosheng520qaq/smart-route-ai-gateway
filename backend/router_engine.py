@@ -107,7 +107,7 @@ class RouterEngine:
         
         # Pre-populate stats for all configured models (if not in file)
         config = config_manager.get_config()
-        all_models = set(config.t1_models + config.t2_models + config.t3_models)
+        all_models = set(config.models.t1 + config.models.t2 + config.models.t3)
         for m in all_models:
             if m and m not in self._model_stats:
                 self._model_stats[m] = {
@@ -163,7 +163,7 @@ class RouterEngine:
         
         # Decay Configuration from ConfigManager
         config = config_manager.get_config()
-        decay_rate = config.health_check_config.decay_rate
+        decay_rate = config.health.decay_rate
         
         # Recover decay_rate points per minute
         elapsed_min = (now - last_updated) / 60.0
@@ -204,7 +204,7 @@ class RouterEngine:
     def cleanup_stats(self):
         """Remove stats for models that are no longer in the configuration"""
         config = config_manager.get_config()
-        current_models = set(config.t1_models + config.t2_models + config.t3_models)
+        current_models = set(config.models.t1 + config.models.t2 + config.models.t3)
         
         # Identify keys to remove (to avoid modifying dict while iterating)
         to_remove = [m for m in self._model_stats if m not in current_models]
@@ -282,9 +282,9 @@ class RouterEngine:
         # Skip router model and default to T2 (Active/Tool-Use) if configured, else fallback gracefully.
         if messages and messages[-1].get("role") == "tool":
             logger.info("Tool response detected. Skipping router.")
-            if config.t2_models:
+            if config.models.t2:
                 return "t2"
-            elif config.t3_models:
+            elif config.models.t3:
                 logger.info("T2 models empty, falling back to T3 for tool response.")
                 return "t3"
             else:
@@ -292,7 +292,7 @@ class RouterEngine:
                 return "t1"
         
         # 1. Use Router Model if enabled
-        if config.router_config.enabled:
+        if config.router.enabled:
             try:
                 # Log Router Start
                 start_t = time.time()
@@ -303,7 +303,7 @@ class RouterEngine:
                 user_msgs = [m for m in messages if m.get("role") == "user"][-3:]
                 history_text = "\n".join([f"User: {self._extract_text_from_content(m.get('content'))}" for m in user_msgs])
                 
-                prompt = config.router_config.prompt_template.replace("{history}", history_text)
+                prompt = config.router.prompt_template.replace("{history}", history_text)
                 
                 # Use global client if available, else create one
                 if self._client is None: await self.startup()
@@ -311,14 +311,14 @@ class RouterEngine:
                 # Note: self._client has global limits, but we need specific timeout here.
                 # request-level timeout overrides client timeout.
                 resp = await self._client.post(
-                    f"{config.router_config.base_url.rstrip('/')}/chat/completions",
+                    f"{config.router.base_url.rstrip('/')}/chat/completions",
                     json={
-                        "model": config.router_config.model,
+                        "model": config.router.model,
                         "messages": [{"role": "user", "content": prompt}],
                         "max_tokens": 10,
                         "temperature": 0.0
                     },
-                    headers={"Authorization": f"Bearer {config.router_config.api_key}"},
+                    headers={"Authorization": f"Bearer {config.router.api_key}"},
                     timeout=5.0
                 )
                     
@@ -342,9 +342,9 @@ class RouterEngine:
             # If Router disabled, use Random Level Selection as requested
             # Pick from levels that have models configured
             available_levels = []
-            if config.t1_models: available_levels.append("t1")
-            if config.t2_models: available_levels.append("t2")
-            if config.t3_models: available_levels.append("t3")
+            if config.models.t1: available_levels.append("t1")
+            if config.models.t2: available_levels.append("t2")
+            if config.models.t3: available_levels.append("t3")
             
             if available_levels:
                 chosen = random.choice(available_levels)
@@ -399,20 +399,20 @@ class RouterEngine:
         max_rounds = 1
         
         if level == "t1":
-            models = config.t1_models
-            timeout_ms = config.timeouts.get("t1", 5000)
-            stream_timeout_ms = config.stream_timeouts.get("t1", 300000)
-            max_rounds = config.retry_rounds.get("t1", 1)
+            models = config.models.t1
+            timeout_ms = config.timeouts.connect.get("t1", 5000)
+            stream_timeout_ms = config.timeouts.generation.get("t1", 300000)
+            max_rounds = config.retries.rounds.get("t1", 1)
         elif level == "t2":
-            models = config.t2_models
-            timeout_ms = config.timeouts.get("t2", 15000)
-            stream_timeout_ms = config.stream_timeouts.get("t2", 300000)
-            max_rounds = config.retry_rounds.get("t2", 1)
+            models = config.models.t2
+            timeout_ms = config.timeouts.connect.get("t2", 15000)
+            stream_timeout_ms = config.timeouts.generation.get("t2", 300000)
+            max_rounds = config.retries.rounds.get("t2", 1)
         else: # t3
-            models = config.t3_models
-            timeout_ms = config.timeouts.get("t3", 30000)
-            stream_timeout_ms = config.stream_timeouts.get("t3", 300000)
-            max_rounds = config.retry_rounds.get("t3", 1)
+            models = config.models.t3
+            timeout_ms = config.timeouts.connect.get("t3", 30000)
+            stream_timeout_ms = config.timeouts.generation.get("t3", 300000)
+            max_rounds = config.retries.rounds.get("t3", 1)
             
         if not models:
             raise HTTPException(status_code=500, detail=f"No models configured for level {level}")
@@ -442,8 +442,8 @@ class RouterEngine:
                 try:
                     # Resolve Provider
                     target_model_id = model_id_entry
-                    target_base_url = config.upstream_base_url
-                    target_api_key = config.upstream_api_key
+                    target_base_url = config.providers.upstream.base_url
+                    target_api_key = config.providers.upstream.api_key
                     provider_label = None
                     
                     # 1. Check if model entry has "provider/model" format
@@ -452,8 +452,8 @@ class RouterEngine:
                         provider_id = parts[0]
                         real_model_id = parts[1]
                         
-                        if provider_id in config.providers:
-                            provider = config.providers[provider_id]
+                        if provider_id in config.providers.custom:
+                            provider = config.providers.custom[provider_id]
                             target_base_url = provider.base_url
                             target_api_key = provider.api_key
                             target_model_id = real_model_id
@@ -463,10 +463,10 @@ class RouterEngine:
                             pass 
 
                     # 2. Check model_provider_map if no prefix used (or prefix resolution failed/ignored)
-                    elif model_id_entry in config.model_provider_map:
-                        provider_id = config.model_provider_map[model_id_entry]
-                        if provider_id in config.providers:
-                            provider = config.providers[provider_id]
+                    elif model_id_entry in config.providers.map:
+                        provider_id = config.providers.map[model_id_entry]
+                        if provider_id in config.providers.custom:
+                            provider = config.providers.custom[provider_id]
                             target_base_url = provider.base_url
                             target_api_key = provider.api_key
                             provider_label = provider_id
@@ -638,13 +638,13 @@ class RouterEngine:
         # Priority: Request > Model Specific > Global Default
         
         # 1. Global Defaults
-        for key, value in config.global_params.items():
+        for key, value in config.params.global_params.items():
             if key not in payload:
                 payload[key] = value
                 
         # 2. Model Specific Defaults
-        if model_id in config.model_params:
-            for key, value in config.model_params[model_id].items():
+        if model_id in config.params.model_params:
+            for key, value in config.params.model_params[model_id].items():
                 if key not in payload or request.model_dump().get(key) is None: 
                     # Note: We use request.model_dump().get(key) is None to check if user explicitly set it.
                     # But payload was created with exclude_none=True, so if it's not in payload, it was None.
@@ -664,11 +664,11 @@ class RouterEngine:
         final_payload = {}
         
         # Base: Global Defaults
-        final_payload.update(config.global_params)
+        final_payload.update(config.params.global_params)
         
         # Override: Model Specific Defaults
-        if model_id in config.model_params:
-            final_payload.update(config.model_params[model_id])
+        if model_id in config.params.model_params:
+            final_payload.update(config.params.model_params[model_id])
             
         # Override: Request Params (only if not None)
         request_dict = request.model_dump(exclude_none=True)
@@ -732,14 +732,14 @@ class RouterEngine:
                         error_str = error_text.decode(errors='replace')
                         
                         should_retry = False
-                        if response.status_code in config.retry_config.status_codes:
+                        if response.status_code in config.retries.conditions.status_codes:
                             should_retry = True
                         
                         # 2. Check Error Keyword Failover
                         keyword_match = None
                         if not should_retry:
                             lower_error = error_str.lower()
-                            for k in config.retry_config.error_keywords:
+                            for k in config.retries.conditions.error_keywords:
                                 if k in lower_error:
                                     should_retry = True
                                     keyword_match = k
@@ -834,7 +834,11 @@ class RouterEngine:
 
                     # Check for empty content (Retry trigger)
                     if not aggregated_content and not aggregated_tool_calls:
-                        raise Exception("Empty Response: Upstream returned empty content and no tool calls")
+                        if config.retries.conditions.retry_on_empty:
+                            raise Exception("Empty Response: Upstream returned empty content and no tool calls")
+                        else:
+                            # If retry disabled, just return empty response (or handle gracefully)
+                            pass # Continue to construct response
 
                     # Construct final response
                     message = {
