@@ -12,6 +12,7 @@ import { Save, Plus, Trash2, GripVertical, Brain, AlertOctagon, HeartPulse, Shie
 import { AppConfig, fetchConfig, updateConfig } from '@/lib/api';
 import { Setup2FA } from './AuthPage';
 import { ChangePassword } from './ChangePassword';
+import { ChangeUsername } from './ChangeUsername';
 import { useAuth } from '@/lib/auth';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -871,6 +872,29 @@ export function ConfigPage() {
 
                     <div className="border-t pt-4">
                         <h3 className="text-sm font-medium mb-4">账户安全</h3>
+
+                        {/* Change Username Section */}
+                        <div className="flex items-center justify-between p-4 border rounded-lg bg-slate-50 mb-4">
+                            <div>
+                                <div className="font-medium">修改用户名</div>
+                                <div className="text-sm text-muted-foreground">
+                                    修改当前账户的登录用户名。
+                                </div>
+                            </div>
+                            <div>
+                                <Dialog>
+                                    <DialogTrigger asChild>
+                                        <Button variant="outline">修改用户名</Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                        <DialogHeader>
+                                            <DialogTitle>修改用户名</DialogTitle>
+                                        </DialogHeader>
+                                        <ChangeUsername />
+                                    </DialogContent>
+                                </Dialog>
+                            </div>
+                        </div>
                         
                         {/* Change Password Section */}
                         <div className="flex items-center justify-between p-4 border rounded-lg bg-slate-50 mb-4">

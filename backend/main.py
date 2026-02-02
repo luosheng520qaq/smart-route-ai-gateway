@@ -110,7 +110,7 @@ async def list_models():
 # --- Management API ---
 
 from auth import (
-    UserAuth, Token, UserCreate, TOTPVerify, TOTPSetupResponse, PasswordChange,
+    UserAuth, Token, UserCreate, TOTPVerify, TOTPSetupResponse, PasswordChange, UsernameChange, TOTPConfirm,
     get_current_active_user, create_access_token, verify_password, 
     get_password_hash, generate_totp_secret, get_totp_uri, verify_totp, 
     ACCESS_TOKEN_EXPIRE_MINUTES
@@ -201,15 +201,14 @@ async def setup_2fa(
 
 @app.post("/api/auth/2fa/confirm")
 async def confirm_2fa(
-    code: str,
-    secret: str,
+    data: TOTPConfirm,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    if not verify_totp(secret, code):
+    if not verify_totp(data.secret, data.code):
         raise HTTPException(status_code=400, detail="Invalid code")
         
-    current_user.totp_secret = secret
+    current_user.totp_secret = data.secret
     await db.commit()
     return {"status": "success", "message": "2FA Enabled"}
 
@@ -233,6 +232,39 @@ async def change_password(
     current_user.hashed_password = get_password_hash(password_data.new_password)
     await db.commit()
     return {"status": "success", "message": "Password updated"}
+
+@app.post("/api/auth/change-username")
+async def change_username(
+    username_data: UsernameChange,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Verify password
+    if not verify_password(username_data.password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect password")
+    
+    # 2. Check if new username exists
+    result = await db.execute(select(User).where(User.username == username_data.new_username))
+    if result.scalars().first():
+        raise HTTPException(status_code=400, detail="Username already taken")
+    
+    # 3. Update username
+    current_user.username = username_data.new_username
+    await db.commit()
+    
+    # 4. Generate new token
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": current_user.username}, expires_delta=access_token_expires
+    )
+    
+    return {
+        "status": "success", 
+        "message": "Username updated", 
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "username": current_user.username
+    }
 
 # --- Management API (Protected by JWT) ---
 

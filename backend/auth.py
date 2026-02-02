@@ -45,6 +45,14 @@ class PasswordChange(BaseModel):
     old_password: str
     new_password: str
 
+class UsernameChange(BaseModel):
+    new_username: str
+    password: str
+
+class TOTPConfirm(BaseModel):
+    code: str
+    secret: str
+
 class TOTPSetupResponse(BaseModel):
     secret: str
     otpauth_url: str
@@ -105,4 +113,5 @@ def get_totp_uri(secret: str, username: str):
 
 def verify_totp(secret: str, code: str):
     totp = pyotp.TOTP(secret)
-    return totp.verify(code)
+    # Allow 1 window (30s) drift backwards and forwards to handle clock skew
+    return totp.verify(code, valid_window=1)
