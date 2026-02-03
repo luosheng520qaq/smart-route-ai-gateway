@@ -10,6 +10,22 @@ from typing import List
 
 # --- Log Format & Buffer ---
 
+STAGE_MAPPING = {
+    "REQ_RECEIVED": "收到请求",
+    "MODEL_CALL_START": "开始调用模型",
+    "FIRST_TOKEN": "首字返回",
+    "FULL_RESPONSE": "响应完成",
+    "MODEL_FAIL": "模型调用失败",
+    "ALL_FAILED": "全部尝试失败",
+    "ROUTER_FAIL": "路由决策失败"
+}
+
+STATUS_MAPPING = {
+    "success": "成功",
+    "fail": "失败",
+    "error": "错误"
+}
+
 class TraceLogger:
     def __init__(self):
         self.buffer = deque(maxlen=10000) # Ring buffer 10k lines
@@ -22,19 +38,35 @@ class TraceLogger:
         handler.setFormatter(logging.Formatter('%(message)s'))
         self.logger.addHandler(handler)
 
-    def _format_log(self, trace_id: str, stage: str, start_time: float, duration_ms: float, status: str, retry_count: int = 0):
-        # Format: [ISO-8601] | traceId | Stage | AbsTime(ms) | Duration(ms) | Status | RetryCount
-        iso_time = datetime.utcnow().isoformat() + "Z"
-        abs_time_ms = int(start_time * 1000)
+    def _format_log(self, trace_id: str, stage: str, start_time: float, duration_ms: float, status: str, retry_count: int = 0, details: str = ""):
+        # Format: [Time] [Stage] Status (Duration) | Details
+        # Chinese friendly format
+        local_time = datetime.fromtimestamp(start_time).strftime('%H:%M:%S.%f')[:-3]
         
-        log_msg = f"[{iso_time}] | {trace_id} | {stage} | {abs_time_ms} | {duration_ms:.2f} | {status}"
+        stage_cn = STAGE_MAPPING.get(stage, stage)
+        status_cn = STATUS_MAPPING.get(status, status)
+        
+        # Color/Icon simulation for text log (Frontend can parse this or we just send text)
+        # Let's keep it structured text
+        
+        log_msg = f"[{local_time}] 【{stage_cn}】 {status_cn}"
+        
+        if duration_ms > 0:
+            log_msg += f" (耗时: {duration_ms:.2f}ms)"
+            
         if retry_count > 0:
-            log_msg += f" | retry={retry_count}"
+            log_msg += f" [重试: {retry_count}]"
+            
+        if details:
+            log_msg += f" | {details}"
+            
+        # Append raw trace_id for debugging if needed, maybe shorter?
+        log_msg += f" <{trace_id[:8]}>"
             
         return log_msg
 
-    def log(self, trace_id: str, stage: str, start_time: float, duration_ms: float, status: str, retry_count: int = 0):
-        msg = self._format_log(trace_id, stage, start_time, duration_ms, status, retry_count)
+    def log(self, trace_id: str, stage: str, start_time: float, duration_ms: float, status: str, retry_count: int = 0, details: str = ""):
+        msg = self._format_log(trace_id, stage, start_time, duration_ms, status, retry_count, details)
         
         # 1. Print to Stdout
         self.logger.info(msg)

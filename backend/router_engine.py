@@ -515,7 +515,7 @@ class RouterEngine:
                     # So duration_since_req is correct for "Framework Received -> First Call".
                     
                     duration_since_req = (call_start_time - start_time) * 1000
-                    trace_logger.log(trace_id, "MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count)
+                    trace_logger.log(trace_id, "MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count, details=f"正在尝试: {display_model_name}")
                     
                     add_trace_event("MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count, model=display_model_name)
                     
@@ -630,7 +630,7 @@ class RouterEngine:
                         reason = error_msg[:500] # Increased limit from 50 to 500
                         penalty = 1.0
 
-                    trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count)
+                    trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, details=f"原因: {reason} | 模型: {display_model_name}")
                     add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=display_model_name, reason=reason)
                     
                     # Record Failure for Adaptive Routing with calculated penalty
@@ -644,7 +644,7 @@ class RouterEngine:
                 
         # All failed
         duration = (time.time() - start_time) * 1000
-        trace_logger.log(trace_id, "ALL_FAILED", time.time(), duration, "fail", retry_count)
+        trace_logger.log(trace_id, "ALL_FAILED", time.time(), duration, "fail", retry_count, details=f"所有 {len(models)} 个模型尝试均失败")
         add_trace_event("ALL_FAILED", time.time(), duration, "fail", retry_count)
         
         background_tasks.add_task(
@@ -749,7 +749,7 @@ class RouterEngine:
             # So we need time of THIS call start? Yes, req_start_time passed in is actually call_start_time now.
             duration_ttft = (ttft_time - req_start_time) * 1000
             
-            trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count)
+            trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count, details=f"首字响应 | 模型: {model_id}")
             if trace_callback:
                 trace_callback("FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count) 
 
@@ -907,7 +907,7 @@ class RouterEngine:
                     full_resp_time = time.time()
                     # Duration from First Token -> Full Return
                     duration_since_ttft = (full_resp_time - ttft_time)*1000
-                    trace_logger.log(trace_id, "FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
+                    trace_logger.log(trace_id, "FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count, details=f"完整响应接收完毕 | Tokens: {prompt_tokens}+{completion_tokens}")
                     if trace_callback:
                         trace_callback("FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
                     
