@@ -66,6 +66,7 @@ export interface TimeoutConfig {
 
 export interface RetrySettings {
   rounds: Record<string, number>;
+  max_retries: Record<string, number>;
   conditions: RetryConfig;
 }
 

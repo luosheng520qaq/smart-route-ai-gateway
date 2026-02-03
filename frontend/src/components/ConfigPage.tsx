@@ -218,6 +218,42 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                 </Select>
                             </div>
 
+                            {(config.models.strategies[level] || "sequential") === "sequential" ? (
+                                <div className="flex items-center justify-between">
+                                    <Label>最多顺序几轮 (完整尝试完一个列表算一轮)</Label>
+                                    <Input 
+                                        type="number" 
+                                        className="w-[180px]"
+                                        min={1}
+                                        value={config.retries.rounds[level] || 1}
+                                        onChange={(e) => setConfig({
+                                            ...config,
+                                            retries: {
+                                                ...config.retries,
+                                                rounds: {...config.retries.rounds, [level]: parseInt(e.target.value) || 1}
+                                            }
+                                        })}
+                                    />
+                                </div>
+                            ) : (
+                                <div className="flex items-center justify-between">
+                                    <Label>最大重试模型次数 (切换一个模型算一次)</Label>
+                                    <Input 
+                                        type="number" 
+                                        className="w-[180px]"
+                                        min={1}
+                                        value={config.retries.max_retries?.[level] || 3}
+                                        onChange={(e) => setConfig({
+                                            ...config,
+                                            retries: {
+                                                ...config.retries,
+                                                max_retries: {...(config.retries.max_retries || {}), [level]: parseInt(e.target.value) || 1}
+                                            }
+                                        })}
+                                    />
+                                </div>
+                            )}
+
                             <div className="space-y-2">
                                 {config.models[level as 't1'|'t2'|'t3'].map((model, idx) => (
                                     <div key={idx} className="flex gap-2">

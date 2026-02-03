@@ -28,6 +28,7 @@ class RetryConfig(BaseModel):
 
 class RetrySettings(BaseModel):
     rounds: Dict[str, int] = {"t1": 1, "t2": 1, "t3": 1}
+    max_retries: Dict[str, int] = {"t1": 3, "t2": 3, "t3": 3}
     conditions: RetryConfig = RetryConfig()
 
 class RouterModelConfig(BaseModel):

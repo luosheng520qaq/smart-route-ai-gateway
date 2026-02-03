@@ -439,6 +439,19 @@ class RouterEngine:
         # Apply Routing Strategy
         strategy = config.routing_strategies.get(level, "sequential")
         sorted_models = self._get_sorted_models(models, strategy)
+        
+        # Apply Strategy-specific Retry Logic
+        if strategy == "sequential":
+             # Sequential: use max_rounds (full list loops) from config
+             pass
+        else:
+             # Adaptive/Random: use max_retries (max model switches)
+             # Set max_rounds to 1 (single pass) and slice the model list
+             max_rounds = 1
+             max_retries_count = config.retries.max_retries.get(level, 3)
+             if len(sorted_models) > max_retries_count:
+                 sorted_models = sorted_models[:max_retries_count]
+
         # Log if strategy reordered them
         if strategy != "sequential" and sorted_models != models:
              logger.info(f"Models reordered by strategy '{strategy}' for level {level}: {sorted_models}")
