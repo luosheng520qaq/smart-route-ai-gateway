@@ -5,7 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import select, desc, func, and_
+from sqlalchemy import select, desc, func, and_, or_
 from datetime import datetime, timedelta, timezone
 import csv
 import io
@@ -482,14 +482,33 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     res_avg = await db.execute(q_avg)
     avg_duration = res_avg.scalar() or 0
     
-    # Error Rate Today
-    q_error = select(func.count(RequestLog.id)).where(
-        RequestLog.timestamp >= today, 
-        RequestLog.status != "success"
+    # Error Rate Today (Attempt-based)
+    # Total Errors = Sum of all retry_counts (failed attempts) + 1 for each final status != success (the final attempt failed)
+    # Actually, retry_count already includes all failures if we implemented it correctly.
+    # Let's check router_engine.py:
+    #   retry_count starts at 0.
+    #   On exception: retry_count += 1
+    #   So if it fails 3 times and gives up, retry_count is 3.
+    #   If it fails 2 times and succeeds on 3rd, retry_count is 2.
+    # So Sum(retry_count) is exactly the total number of failed attempts.
+    
+    q_retry_sum = select(func.sum(RequestLog.retry_count)).where(RequestLog.timestamp >= today)
+    res_retry_sum = await db.execute(q_retry_sum)
+    total_retries = res_retry_sum.scalar() or 0
+    
+    # Total Successful Attempts = Count of requests where status == 'success'
+    q_success_count = select(func.count(RequestLog.id)).where(
+        RequestLog.timestamp >= today,
+        RequestLog.status == "success"
     )
-    res_error = await db.execute(q_error)
-    error_count = res_error.scalar() or 0
-    error_rate = (error_count / total_requests * 100) if total_requests > 0 else 0
+    res_success_count = await db.execute(q_success_count)
+    total_success_attempts = res_success_count.scalar() or 0
+    
+    # Total Attempts = Failures + Successes
+    total_attempts = total_retries + total_success_attempts
+    
+    # Error Rate = Failures / Total Attempts
+    error_rate = (total_retries / total_attempts * 100) if total_attempts > 0 else 0
     
     # Intent Distribution (All time or Today? Let's do Today)
     q_intent = select(RequestLog.level, func.count(RequestLog.id)).where(RequestLog.timestamp >= today).group_by(RequestLog.level)
