@@ -111,7 +111,7 @@ async def list_models():
 # --- Management API ---
 
 from auth import (
-    UserAuth, Token, UserCreate, TOTPVerify, TOTPSetupResponse, PasswordChange, UsernameChange, TOTPConfirm,
+    UserAuth, UserLogin2FA, Token, UserCreate, TOTPVerify, TOTPSetupResponse, PasswordChange, UsernameChange, TOTPConfirm,
     get_current_active_user, create_access_token, verify_password, 
     get_password_hash, generate_totp_secret, get_totp_uri, verify_totp, 
     ACCESS_TOKEN_EXPIRE_MINUTES
@@ -165,15 +165,13 @@ async def login_for_access_token(form_data: UserAuth, db: AsyncSession = Depends
 
 @app.post("/api/auth/2fa/verify", response_model=Token)
 async def verify_2fa_login(
-    username: str, 
-    code: str, 
-    password: str, # Re-verify password to be safe, or use a temp token
+    data: UserLogin2FA,
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(User).where(User.username == username))
+    result = await db.execute(select(User).where(User.username == data.username))
     user = result.scalars().first()
     
-    if not user or not verify_password(password, user.hashed_password):
+    if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
         
     if not user.totp_secret:
@@ -181,7 +179,7 @@ async def verify_2fa_login(
          access_token = create_access_token(data={"sub": user.username})
          return {"access_token": access_token, "token_type": "bearer"}
          
-    if not verify_totp(user.totp_secret, code):
+    if not verify_totp(user.totp_secret, data.code):
         raise HTTPException(status_code=401, detail="Invalid 2FA Code")
         
     access_token = create_access_token(data={"sub": user.username})

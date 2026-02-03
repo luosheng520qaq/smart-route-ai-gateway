@@ -34,6 +34,11 @@ class UserAuth(BaseModel):
     username: str
     password: str
 
+class UserLogin2FA(BaseModel):
+    username: str
+    password: str
+    code: str
+
 class UserCreate(BaseModel):
     username: str
     password: str
