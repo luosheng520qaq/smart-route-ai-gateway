@@ -138,8 +138,8 @@ class AppConfig(BaseModel):
 class ConfigManager:
     _instance = None
     _config: AppConfig = None
-    # Use absolute path relative to project root (one level up from backend)
-    _base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # 使用 backend 目录下的配置文件，避免与根目录冲突
+    _base_dir = os.path.dirname(os.path.abspath(__file__))
     _config_path: str = os.path.join(_base_dir, "config.json")
     _backup_path: str = os.path.join(_base_dir, "config.backup.json")
 
