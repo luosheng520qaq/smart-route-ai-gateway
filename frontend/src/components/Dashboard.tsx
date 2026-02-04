@@ -144,46 +144,50 @@ export function Dashboard() {
             <Coins className="h-4 w-4 text-muted-foreground group-hover:text-amber-500 transition-colors" />
           </CardHeader>
           <CardContent>
-              <TooltipProvider delayDuration={0}>
-                 <UITooltip>
-                     <TooltipTrigger asChild>
-                         <div 
-                            className="cursor-pointer touch-none select-none" 
-                            tabIndex={0} 
-                            role="button"
-                            onClick={() => setTokenUnit(tokenUnit === 'k' ? 'm' : 'k')}
-                         >
-                             <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-500 to-orange-500">
-                                 {stats?.tokens?.total 
-                                    ? (tokenUnit === 'k' 
-                                        ? (stats.tokens.total / 1000).toFixed(1) + 'k' 
-                                        : (stats.tokens.total / 1000000).toFixed(2) + 'M')
-                                    : '0'}
+              <div className="flex flex-col gap-1">
+                 {/* Number Area: Click to Toggle Unit */}
+                 <div 
+                    className="cursor-pointer select-none touch-none active:scale-95 transition-transform"
+                    onClick={() => setTokenUnit(tokenUnit === 'k' ? 'm' : 'k')}
+                    title="点击切换单位 (K/M)"
+                 >
+                     <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-500 to-orange-500">
+                         {stats?.tokens?.total 
+                            ? (tokenUnit === 'k' 
+                                ? (stats.tokens.total / 1000).toFixed(1) + 'k' 
+                                : (stats.tokens.total / 1000000).toFixed(2) + 'M')
+                            : '0'}
+                     </div>
+                 </div>
+
+                 {/* Footer Area: Tooltip Trigger */}
+                 <TooltipProvider delayDuration={0}>
+                    <UITooltip>
+                        <TooltipTrigger asChild>
+                             <div className="flex items-center gap-1 text-xs text-muted-foreground cursor-help w-fit">
+                                 <Info className="h-3 w-3" /> 点击数字切换 / 点击此处详情
                              </div>
-                             <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                                 <Info className="h-3 w-3" /> 点击切换单位 / 查看详情
-                             </div>
-                         </div>
-                     </TooltipTrigger>
-                     <TooltipContent side="bottom" className="z-[100]">
-                         <div className="text-xs space-y-1">
-                            <div className="font-semibold border-b pb-1 mb-1">Token 统计详情</div>
-                            <div className="flex justify-between gap-4">
-                                <span>Input (Prompt):</span>
-                                <span className="font-mono">{stats?.tokens?.prompt?.toLocaleString() || 0}</span>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="z-[100]">
+                            <div className="text-xs space-y-1">
+                                <div className="font-semibold border-b pb-1 mb-1">Token 统计详情</div>
+                                <div className="flex justify-between gap-4">
+                                    <span>Input (Prompt):</span>
+                                    <span className="font-mono">{stats?.tokens?.prompt?.toLocaleString() || 0}</span>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                    <span>Output (Completion):</span>
+                                    <span className="font-mono">{stats?.tokens?.completion?.toLocaleString() || 0}</span>
+                                </div>
+                                 <div className="flex justify-between gap-4 border-t pt-1 mt-1 font-medium">
+                                    <span>Total:</span>
+                                    <span className="font-mono">{stats?.tokens?.total?.toLocaleString() || 0}</span>
+                                </div>
                             </div>
-                            <div className="flex justify-between gap-4">
-                                <span>Output (Completion):</span>
-                                <span className="font-mono">{stats?.tokens?.completion?.toLocaleString() || 0}</span>
-                            </div>
-                             <div className="flex justify-between gap-4 border-t pt-1 mt-1 font-medium">
-                                <span>Total:</span>
-                                <span className="font-mono">{stats?.tokens?.total?.toLocaleString() || 0}</span>
-                            </div>
-                        </div>
-                    </TooltipContent>
-                </UITooltip>
-            </TooltipProvider>
+                        </TooltipContent>
+                    </UITooltip>
+                </TooltipProvider>
+              </div>
           </CardContent>
         </Card>
       </div>
@@ -245,14 +249,13 @@ export function Dashboard() {
 
       {/* Charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="col-span-1 border-none shadow-none bg-transparent">
+        <Card className="col-span-1 group hover:border-sky-400/50 transition-all duration-300">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <span className="w-1 h-6 bg-sky-500 rounded-full"></span>
+            <CardTitle className="flex items-center gap-2 group-hover:text-sky-500 transition-colors">
               意图分布
             </CardTitle>
           </CardHeader>
-          <CardContent className="h-[300px] glass rounded-2xl p-4">
+          <CardContent className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -275,9 +278,9 @@ export function Dashboard() {
             </ResponsiveContainer>
           </CardContent>
         </Card>
-        <Card className="col-span-1">
+        <Card className="col-span-1 group hover:border-sky-400/50 transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>响应时间趋势 (最近50次)</CardTitle>
+            <CardTitle className="group-hover:text-sky-500 transition-colors">响应时间趋势 (最近50次)</CardTitle>
             <Button variant="outline" size="sm" onClick={handleResetZoom}>
                <RefreshCcw className="h-3 w-3 mr-1" /> 重置缩放
             </Button>
