@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
-import { Activity, Clock, AlertTriangle, RefreshCcw, HeartPulse } from 'lucide-react';
+import { Activity, Clock, AlertTriangle, RefreshCcw, HeartPulse, Coins, Info } from 'lucide-react';
 import { fetchStats, fetchModelStats, Stats } from '@/lib/api';
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const COLORS = ['#0ea5e9', '#22d3ee', '#94a3b8', '#cbd5e1']; // Sky, Cyan, Slate, Light Slate
 
@@ -20,12 +22,13 @@ export function Dashboard() {
   const [modelStats, setModelStats] = useState<Record<string, { failures: number; success: number; health_score?: number }> | null>(null);
   const [loading, setLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [timeRange, setTimeRange] = useState<'today' | '3days' | 'all'>('today');
 
   const loadData = async () => {
     try {
       // Fetch stats and model stats in parallel
       const [statsData, modelStatsData] = await Promise.all([
-        fetchStats(),
+        fetchStats(timeRange),
         fetchModelStats()
       ]);
       setStats(statsData);
@@ -41,7 +44,7 @@ export function Dashboard() {
     loadData();
     const interval = setInterval(loadData, 5000); // Poll every 5s
     return () => clearInterval(interval);
-  }, []);
+  }, [timeRange]); // Reload when range changes
 
   const handleResetZoom = () => {
     console.log("Reset zoom");
@@ -72,17 +75,38 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700 slide-in-from-bottom-4">
+      {/* Header & Filter */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+         <div>
+            <h2 className="text-2xl font-bold tracking-tight">仪表盘</h2>
+            <p className="text-muted-foreground">实时监控系统状态与模型性能</p>
+         </div>
+         <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">统计范围:</span>
+            <Select value={timeRange} onValueChange={(v: any) => setTimeRange(v)}>
+                <SelectTrigger className="w-[140px]">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="today">今日 (24h)</SelectItem>
+                    <SelectItem value="3days">最近三天</SelectItem>
+                    <SelectItem value="all">全部历史</SelectItem>
+                </SelectContent>
+            </Select>
+         </div>
+      </div>
+
       {/* Status Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card className="group hover:border-sky-400/50 transition-all duration-300">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground group-hover:text-sky-500 transition-colors">今日请求总数</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground group-hover:text-sky-500 transition-colors">请求总数</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground group-hover:text-sky-500 transition-colors" />
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-sky-500 to-cyan-500">{stats?.total_requests}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              较昨日 <span className={`font-medium ${
+              较上个周期 <span className={`font-medium ${
                 (stats?.request_change_percentage || 0) > 0 ? 'text-emerald-500' : 
                 (stats?.request_change_percentage || 0) < 0 ? 'text-rose-500' : 'text-muted-foreground'
               }`}>
@@ -109,6 +133,47 @@ export function Dashboard() {
           <CardContent>
             <div className={`text-3xl font-bold ${stats?.error_rate && stats.error_rate > 5 ? 'text-rose-500' : 'bg-clip-text text-transparent bg-gradient-to-r from-slate-400 to-slate-600'}`}>{stats?.error_rate}%</div>
             <p className="text-xs text-muted-foreground mt-1">故障切换触发频率</p>
+          </CardContent>
+        </Card>
+        
+        {/* Token Usage Card */}
+        <Card className="group hover:border-amber-400/50 transition-all duration-300">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground group-hover:text-amber-500 transition-colors">Token 消耗</CardTitle>
+            <Coins className="h-4 w-4 text-muted-foreground group-hover:text-amber-500 transition-colors" />
+          </CardHeader>
+          <CardContent>
+             <TooltipProvider>
+                <UITooltip>
+                    <TooltipTrigger asChild>
+                        <div className="cursor-help">
+                            <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-500 to-orange-500">
+                                {stats?.tokens?.total ? (stats.tokens.total / 1000).toFixed(1) + 'k' : '0'}
+                            </div>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                                <Info className="h-3 w-3" /> 查看输入/输出详情
+                            </div>
+                        </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <div className="text-xs space-y-1">
+                            <div className="font-semibold border-b pb-1 mb-1">Token 统计详情</div>
+                            <div className="flex justify-between gap-4">
+                                <span>Input (Prompt):</span>
+                                <span className="font-mono">{stats?.tokens?.prompt?.toLocaleString() || 0}</span>
+                            </div>
+                            <div className="flex justify-between gap-4">
+                                <span>Output (Completion):</span>
+                                <span className="font-mono">{stats?.tokens?.completion?.toLocaleString() || 0}</span>
+                            </div>
+                             <div className="flex justify-between gap-4 border-t pt-1 mt-1 font-medium">
+                                <span>Total:</span>
+                                <span className="font-mono">{stats?.tokens?.total?.toLocaleString() || 0}</span>
+                            </div>
+                        </div>
+                    </TooltipContent>
+                </UITooltip>
+            </TooltipProvider>
           </CardContent>
         </Card>
       </div>

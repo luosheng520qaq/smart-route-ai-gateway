@@ -140,7 +140,17 @@ export interface Stats {
   error_rate: number;
   intent_distribution: { name: string; value: number }[];
   response_trend: { time: string; duration: number }[];
+  tokens?: {
+      prompt: number;
+      completion: number;
+      total: number;
+  };
 }
+
+export const fetchStats = async (range: 'today' | '3days' | 'all' = 'today') => {
+  const response = await api.get<Stats>(`/api/stats?range=${range}`);
+  return response.data;
+};
 
 export const fetchConfig = async () => {
   const response = await api.get<AppConfig>('/api/config');
@@ -196,11 +206,6 @@ export const exportLogs = async (filters: LogFilters = {}) => {
   const response = await api.get(`/api/logs/export?${params.toString()}`, {
     responseType: 'blob',
   });
-  return response.data;
-};
-
-export const fetchStats = async () => {
-  const response = await api.get<Stats>('/api/stats');
   return response.data;
 };
 

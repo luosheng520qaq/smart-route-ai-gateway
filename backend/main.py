@@ -454,73 +454,98 @@ async def export_logs(
     return response
 
 @app.get("/api/stats", dependencies=[Depends(get_current_active_user)])
-async def get_stats(db: AsyncSession = Depends(get_db)):
-    # Today's stats
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+async def get_stats(range: str = Query("today", regex="^(today|3days|all)$"), db: AsyncSession = Depends(get_db)):
+    # Calculate Time Range
+    now = datetime.utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     
-    # Total Requests Today
-    q_total = select(func.count(RequestLog.id)).where(RequestLog.timestamp >= today)
+    start_time = None
+    if range == "today":
+        start_time = today_start
+    elif range == "3days":
+        start_time = today_start - timedelta(days=2) # Today + 2 previous days
+    # else "all": start_time remains None
+    
+    # --- Base Filter Condition ---
+    filter_cond = True if start_time is None else RequestLog.timestamp >= start_time
+    
+    # --- 1. Total Requests (in range) ---
+    q_total = select(func.count(RequestLog.id)).where(filter_cond)
     res_total = await db.execute(q_total)
     total_requests = res_total.scalar() or 0
 
-    # Total Requests Yesterday
-    yesterday = today - timedelta(days=1)
-    q_yesterday = select(func.count(RequestLog.id)).where(
-        and_(RequestLog.timestamp >= yesterday, RequestLog.timestamp < today)
-    )
-    res_yesterday = await db.execute(q_yesterday)
-    total_requests_yesterday = res_yesterday.scalar() or 0
-
-    # Calculate Percentage Change
-    if total_requests_yesterday > 0:
-        change_pct = ((total_requests - total_requests_yesterday) / total_requests_yesterday) * 100
-    else:
-        change_pct = 100.0 if total_requests > 0 else 0.0
+    # --- 2. Change Percentage (vs Previous Period) ---
+    # Only applicable for 'today' (vs yesterday) or maybe '3days' (vs previous 3 days).
+    # For simplicity, we keep the 'vs Yesterday' logic only when range='today'.
+    # For other ranges, we might just show N/A or compare with previous same-length period.
+    change_pct = 0.0
     
-    # Avg Duration Today
-    q_avg = select(func.avg(RequestLog.duration_ms)).where(RequestLog.timestamp >= today)
+    if range == "today":
+        yesterday_start = today_start - timedelta(days=1)
+        q_yesterday = select(func.count(RequestLog.id)).where(
+            and_(RequestLog.timestamp >= yesterday_start, RequestLog.timestamp < today_start)
+        )
+        res_yesterday = await db.execute(q_yesterday)
+        requests_prev = res_yesterday.scalar() or 0
+        
+        if requests_prev > 0:
+            change_pct = ((total_requests - requests_prev) / requests_prev) * 100
+        else:
+            change_pct = 100.0 if total_requests > 0 else 0.0
+            
+    elif range == "3days":
+        # Compare with previous 3 days
+        prev_3days_start = start_time - timedelta(days=3)
+        q_prev = select(func.count(RequestLog.id)).where(
+             and_(RequestLog.timestamp >= prev_3days_start, RequestLog.timestamp < start_time)
+        )
+        res_prev = await db.execute(q_prev)
+        requests_prev = res_prev.scalar() or 0
+        
+        if requests_prev > 0:
+            change_pct = ((total_requests - requests_prev) / requests_prev) * 100
+        else:
+             change_pct = 100.0 if total_requests > 0 else 0.0
+
+    # --- 3. Avg Duration (in range) ---
+    q_avg = select(func.avg(RequestLog.duration_ms)).where(filter_cond)
     res_avg = await db.execute(q_avg)
     avg_duration = res_avg.scalar() or 0
     
-    # Error Rate Today (Attempt-based)
-    # Total Errors = Sum of all retry_counts (failed attempts) + 1 for each final status != success (the final attempt failed)
-    # Actually, retry_count already includes all failures if we implemented it correctly.
-    # Let's check router_engine.py:
-    #   retry_count starts at 0.
-    #   On exception: retry_count += 1
-    #   So if it fails 3 times and gives up, retry_count is 3.
-    #   If it fails 2 times and succeeds on 3rd, retry_count is 2.
-    # So Sum(retry_count) is exactly the total number of failed attempts.
-    
-    q_retry_sum = select(func.sum(RequestLog.retry_count)).where(RequestLog.timestamp >= today)
+    # --- 4. Error Rate (in range) ---
+    q_retry_sum = select(func.sum(RequestLog.retry_count)).where(filter_cond)
     res_retry_sum = await db.execute(q_retry_sum)
     total_retries = res_retry_sum.scalar() or 0
     
-    # Total Successful Attempts = Count of requests where status == 'success'
     q_success_count = select(func.count(RequestLog.id)).where(
-        RequestLog.timestamp >= today,
-        RequestLog.status == "success"
+        and_(filter_cond, RequestLog.status == "success")
     )
     res_success_count = await db.execute(q_success_count)
     total_success_attempts = res_success_count.scalar() or 0
     
-    # Total Attempts = Failures + Successes
     total_attempts = total_retries + total_success_attempts
-    
-    # Error Rate = Failures / Total Attempts
     error_rate = (total_retries / total_attempts * 100) if total_attempts > 0 else 0
     
-    # Intent Distribution (All time or Today? Let's do Today)
-    q_intent = select(RequestLog.level, func.count(RequestLog.id)).where(RequestLog.timestamp >= today).group_by(RequestLog.level)
+    # --- 5. Intent Distribution (in range) ---
+    q_intent = select(RequestLog.level, func.count(RequestLog.id)).where(filter_cond).group_by(RequestLog.level)
     res_intent = await db.execute(q_intent)
     intent_dist = [{"name": row[0], "value": row[1]} for row in res_intent.all()]
     
-    # Recent Trend (Last 24h, grouped by hour) - Simplified to last 20 requests for now or simple daily stats
-    # For chart "Response Time Trend", maybe last 50 requests?
-    q_trend = select(RequestLog.timestamp, RequestLog.duration_ms).order_by(desc(RequestLog.timestamp)).limit(50)
+    # --- 6. Response Trend (Limit to last 50 within range) ---
+    q_trend = select(RequestLog.timestamp, RequestLog.duration_ms).where(filter_cond).order_by(desc(RequestLog.timestamp)).limit(50)
     res_trend = await db.execute(q_trend)
-    # Return ISO string for frontend to handle timezone
     trend_data = [{"time": row[0].isoformat(), "duration": row[1]} for row in res_trend.all()][::-1]
+
+    # --- 7. Token Usage (New) ---
+    q_tokens = select(
+        func.sum(RequestLog.prompt_tokens),
+        func.sum(RequestLog.completion_tokens)
+    ).where(filter_cond)
+    res_tokens = await db.execute(q_tokens)
+    prompt_tokens, completion_tokens = res_tokens.one()
+    
+    prompt_tokens = prompt_tokens or 0
+    completion_tokens = completion_tokens or 0
 
     return {
         "total_requests": total_requests,
@@ -528,7 +553,12 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         "avg_duration": round(avg_duration, 2),
         "error_rate": round(error_rate, 2),
         "intent_distribution": intent_dist,
-        "response_trend": trend_data
+        "response_trend": trend_data,
+        "tokens": {
+            "prompt": prompt_tokens,
+            "completion": completion_tokens,
+            "total": prompt_tokens + completion_tokens
+        }
     }
 
 # --- Background Maintenance ---

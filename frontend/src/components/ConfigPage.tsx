@@ -79,7 +79,7 @@ export function ConfigPage() {
       </div>
 
       <Tabs defaultValue="general" className="w-full flex flex-col md:flex-row gap-6">
-        <TabsList className="flex md:flex-col h-auto justify-start w-full md:w-48 bg-transparent p-0 gap-2">
+        <TabsList className="flex md:flex-col h-auto justify-start w-full md:w-48 bg-transparent p-0 gap-2 overflow-x-auto no-scrollbar">
             <TabItem value="general" icon={<Settings className="w-4 h-4"/>} label="基础设置" />
             <TabItem value="models" icon={<Server className="w-4 h-4"/>} label="模型管理" />
             <TabItem value="providers" icon={<Database className="w-4 h-4"/>} label="供应商" />
@@ -127,7 +127,7 @@ function TabItem({ value, icon, label }: { value: string, icon: any, label: stri
     return (
         <TabsTrigger 
             value={value}
-            className="w-full justify-start gap-2 px-4 py-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all"
+            className="flex-shrink-0 md:w-full justify-start gap-2 px-4 py-3 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all"
         >
             {icon}
             {label}
