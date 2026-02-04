@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Save, Plus, Trash2, Brain, HeartPulse, ShieldCheck, Settings, Server, Network, History as HistoryIcon, RotateCcw, Search, Database } from 'lucide-react';
+import { Save, Plus, Trash2, Brain, HeartPulse, ShieldCheck, Settings, Server, Network, History as HistoryIcon, RotateCcw, Database } from 'lucide-react';
 import { AppConfig, fetchConfig, updateConfig, fetchHistory, rollbackConfig, ConfigHistory } from '@/lib/api';
 import { Setup2FA } from './AuthPage';
 import { ChangePassword } from './ChangePassword';
@@ -23,7 +23,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 export function ConfigPage() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
   const { has2FA, checkAuth } = useAuth();
 
   useEffect(() => {
@@ -62,15 +61,6 @@ export function ConfigPage() {
           <p className="text-muted-foreground">全功能系统配置与策略管理</p>
         </div>
         <div className="flex gap-2">
-           <div className="relative w-64">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input 
-                placeholder="搜索配置项..." 
-                className="pl-8" 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-           </div>
            <HistoryDialog onRollback={loadConfig} />
            <Button onClick={handleSave} className="gap-2">
             <Save className="h-4 w-4" /> 保存更改
