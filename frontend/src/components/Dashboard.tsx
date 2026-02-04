@@ -23,6 +23,7 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
   const [timeRange, setTimeRange] = useState<'today' | '3days' | 'all'>('today');
+  const [tokenUnit, setTokenUnit] = useState<'k' | 'm'>('k');
 
   const loadData = async () => {
     try {
@@ -143,20 +144,29 @@ export function Dashboard() {
             <Coins className="h-4 w-4 text-muted-foreground group-hover:text-amber-500 transition-colors" />
           </CardHeader>
           <CardContent>
-             <TooltipProvider>
-                <UITooltip>
-                    <TooltipTrigger asChild>
-                        <div className="cursor-help">
-                            <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-500 to-orange-500">
-                                {stats?.tokens?.total ? (stats.tokens.total / 1000).toFixed(1) + 'k' : '0'}
-                            </div>
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                                <Info className="h-3 w-3" /> 查看输入/输出详情
-                            </div>
-                        </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                        <div className="text-xs space-y-1">
+              <TooltipProvider delayDuration={0}>
+                 <UITooltip>
+                     <TooltipTrigger asChild>
+                         <div 
+                            className="cursor-pointer touch-none select-none" 
+                            tabIndex={0} 
+                            role="button"
+                            onClick={() => setTokenUnit(tokenUnit === 'k' ? 'm' : 'k')}
+                         >
+                             <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-500 to-orange-500">
+                                 {stats?.tokens?.total 
+                                    ? (tokenUnit === 'k' 
+                                        ? (stats.tokens.total / 1000).toFixed(1) + 'k' 
+                                        : (stats.tokens.total / 1000000).toFixed(2) + 'M')
+                                    : '0'}
+                             </div>
+                             <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                                 <Info className="h-3 w-3" /> 点击切换单位 / 查看详情
+                             </div>
+                         </div>
+                     </TooltipTrigger>
+                     <TooltipContent side="bottom" className="z-[100]">
+                         <div className="text-xs space-y-1">
                             <div className="font-semibold border-b pb-1 mb-1">Token 统计详情</div>
                             <div className="flex justify-between gap-4">
                                 <span>Input (Prompt):</span>
