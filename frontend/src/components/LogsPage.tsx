@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { CheckCircle2, XCircle, RefreshCw, FileText, Download, Lock, Info } from 'lucide-react';
 import { fetchLogs, exportLogs, RequestLog, TraceEvent, LogFilters } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 
 export function LogsPage() {
   const [logs, setLogs] = useState<RequestLog[]>([]);
@@ -23,7 +24,7 @@ export function LogsPage() {
   const [total, setTotal] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [authError, setAuthError] = useState(false);
-  const [apiKey, setApiKey] = useState("");
+  const { logout } = useAuth();
   
   // Filters
   const [filters, setFilters] = useState<LogFilters>({
@@ -91,11 +92,7 @@ export function LogsPage() {
     }
   };
 
-  const saveApiKey = () => {
-      localStorage.setItem('gateway_key', apiKey);
-      setAuthError(false);
-      loadData();
-  };
+  // saveApiKey removed
 
   useEffect(() => {
     loadData();
@@ -250,18 +247,9 @@ export function LogsPage() {
       return (
           <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
               <Lock className="h-16 w-16 text-muted-foreground" />
-              <h2 className="text-2xl font-bold">需要授权</h2>
-              <p className="text-muted-foreground">访问此页面需要 Gateway API Key</p>
-              <div className="flex gap-2">
-                  <Input 
-                    type="password" 
-                    placeholder="输入 API Key" 
-                    value={apiKey} 
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="w-[300px]"
-                  />
-                  <Button onClick={saveApiKey}>确认</Button>
-              </div>
+              <h2 className="text-2xl font-bold">登录失效</h2>
+              <p className="text-muted-foreground">您的登录会话已过期，请重新登录。</p>
+              <Button onClick={logout}>去登录</Button>
           </div>
       );
   }
