@@ -358,18 +358,10 @@ class RouterEngine:
                 if trace_callback:
                      trace_callback("ROUTER_FAIL", time.time(), 0, "fail", 0)
         else:
-            # If Router disabled, use Random Level Selection as requested
-            # Pick from levels that have models configured
-            available_levels = []
-            if config.models.t1: available_levels.append("t1")
-            if config.models.t2: available_levels.append("t2")
-            if config.models.t3: available_levels.append("t3")
-            
-            if available_levels:
-                chosen = random.choice(available_levels)
-                logger.info(f"Router disabled. Randomly selected level: {chosen}")
-                return chosen
-            return "t1" # Default fallback if no models configured
+            # If Router disabled, as requested by user, we default to T1 only.
+            # This allows T1 to act as a fault-tolerant/fallback pool.
+            logger.info("Router disabled. Defaulting to T1 level for fault tolerance.")
+            return "t1"
 
         # 2. Fallback Heuristic (Only used if Router enabled but failed)
         full_text = " ".join([self._extract_text_from_content(m.get("content")) for m in messages])

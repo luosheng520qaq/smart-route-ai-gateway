@@ -539,6 +539,9 @@ function RouterSettings({ config, setConfig }: { config: AppConfig, setConfig: a
                     />
                     <Label>启用 LLM 路由</Label>
                 </div>
+                <p className="text-sm text-muted-foreground">
+                    关闭意图路由后，系统将仅使用 <strong>T1 层级</strong> 模型，并启用故障重试模式 (适用于纯容灾场景)。
+                </p>
                 {config.router.enabled && (
                     <>
                         <div className="grid gap-2">
