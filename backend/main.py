@@ -461,7 +461,7 @@ async def export_logs(
     return response
 
 @app.get("/api/stats", dependencies=[Depends(get_current_active_user)])
-async def get_stats(range: str = Query("today", regex="^(today|3days|all)$"), db: AsyncSession = Depends(get_db)):
+async def get_stats(range: str = Query("today", pattern="^(today|3days|all)$"), db: AsyncSession = Depends(get_db)):
     # Calculate Time Range
     now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
