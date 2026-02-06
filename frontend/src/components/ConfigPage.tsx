@@ -591,11 +591,34 @@ function ParamSettings({ config, setConfig }: { config: AppConfig, setConfig: an
     )
 }
 
-function SecuritySettings({ has2FA, checkAuth }: any) {
+function SecuritySettings({ config, setConfig, has2FA, checkAuth }: any) {
     return (
         <Card>
             <CardHeader><CardTitle>账户安全</CardTitle></CardHeader>
             <CardContent className="space-y-4">
+                <div className="space-y-2 border p-4 rounded">
+                    <Label>登录会话有效期 (分钟)</Label>
+                    <div className="flex items-center gap-4">
+                         <Input 
+                            type="number"
+                            min="1"
+                            value={config.security?.access_token_expire_minutes || 1440}
+                            onChange={(e) => setConfig({
+                                ...config,
+                                security: {
+                                    ...(config.security || {}),
+                                    access_token_expire_minutes: parseInt(e.target.value) || 60
+                                }
+                            })}
+                            className="w-32"
+                        />
+                        <span className="text-sm text-muted-foreground">
+                            {((config.security?.access_token_expire_minutes || 1440) / 60).toFixed(1)} 小时
+                        </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">设置登录后 Token 的有效时长。修改后需要重新登录生效。</p>
+                </div>
+
                 <div className="flex justify-between items-center border p-4 rounded">
                     <div>
                         <div className="font-medium">修改用户名</div>

@@ -69,6 +69,9 @@ Respond ONLY with the label: "T1", "T2", or "T3"."""
 class HealthCheckConfig(BaseModel):
     decay_rate: float = 0.05 # Recovery points per minute
 
+class SecurityConfig(BaseModel):
+    access_token_expire_minutes: int = 1440 # 24 hours
+
 class ProviderConfig(BaseModel):
     base_url: str
     api_key: str
@@ -90,6 +93,7 @@ class ParameterConfig(BaseModel):
 
 class AppConfig(BaseModel):
     general: GeneralConfig = GeneralConfig()
+    security: SecurityConfig = SecurityConfig()
     models: ModelsConfig = ModelsConfig()
     timeouts: TimeoutConfig = TimeoutConfig()
     retries: RetrySettings = RetrySettings()

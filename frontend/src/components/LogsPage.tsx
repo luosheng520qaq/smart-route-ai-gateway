@@ -521,10 +521,12 @@ export function LogsPage() {
                                                         <PopoverTrigger asChild>
                                                             <Info className="h-3 w-3 text-red-500 cursor-pointer" />
                                                         </PopoverTrigger>
-                                                        <PopoverContent className="w-80 p-3" align="start">
+                                                        <PopoverContent className="w-[500px] max-w-[90vw] p-3" align="start">
                                                             <div className="space-y-2">
                                                                 <h4 className="font-medium text-xs text-red-600">错误详情</h4>
-                                                                <p className="text-xs font-mono break-all bg-muted p-2 rounded">{event.reason}</p>
+                                                                <div className="text-xs font-mono break-all bg-muted p-2 rounded max-h-[300px] overflow-y-auto whitespace-pre-wrap">
+                                                                    {event.reason}
+                                                                </div>
                                                             </div>
                                                         </PopoverContent>
                                                     </Popover>

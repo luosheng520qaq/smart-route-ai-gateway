@@ -157,7 +157,10 @@ async def login_for_access_token(form_data: UserAuth, db: AsyncSession = Depends
     # BUT, to enforce 2FA, we should check it here if set.
     # Let's add a "code" field to UserAuth or handle it.
     
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    config = config_manager.get_config()
+    expire_minutes = config.security.access_token_expire_minutes
+    access_token_expires = timedelta(minutes=expire_minutes)
+    
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
@@ -176,13 +179,17 @@ async def verify_2fa_login(
         
     if not user.totp_secret:
          # 2FA not setup, just login
-         access_token = create_access_token(data={"sub": user.username})
+         config = config_manager.get_config()
+         expire_minutes = config.security.access_token_expire_minutes
+         access_token = create_access_token(data={"sub": user.username}, expires_delta=timedelta(minutes=expire_minutes))
          return {"access_token": access_token, "token_type": "bearer"}
          
     if not verify_totp(user.totp_secret, data.code):
         raise HTTPException(status_code=401, detail="Invalid 2FA Code")
         
-    access_token = create_access_token(data={"sub": user.username})
+    config = config_manager.get_config()
+    expire_minutes = config.security.access_token_expire_minutes
+    access_token = create_access_token(data={"sub": user.username}, expires_delta=timedelta(minutes=expire_minutes))
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/api/auth/2fa/setup", response_model=TOTPSetupResponse)

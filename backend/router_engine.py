@@ -619,7 +619,7 @@ class RouterEngine:
                              reason += f": {error_msg.split(':', 1)[1].strip()}"
                          penalty = 1.0
                     else:
-                        reason = error_msg[:500] # Increased limit from 50 to 500
+                        reason = error_msg # No truncation
                         penalty = 1.0
 
                     trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, details=f"原因: {reason} | 模型: {display_model_name}")
@@ -771,11 +771,11 @@ class RouterEngine:
                         
                         if should_retry:
                             if keyword_match:
-                                raise Exception(f"Error Keyword Match: {keyword_match} in {error_str[:500]}")
+                                raise Exception(f"Error Keyword Match: {keyword_match} in {error_str}")
                             else:
-                                raise Exception(f"Status Code Error: {response.status_code} - {error_str[:500]}")
+                                raise Exception(f"Status Code Error: {response.status_code} - {error_str}")
                         else:
-                            raise Exception(f"Upstream Error: {response.status_code} - {error_str[:500]}")
+                            raise Exception(f"Upstream Error: {response.status_code} - {error_str}")
 
                     # Aggregate Stream
                     aggregated_content = ""
