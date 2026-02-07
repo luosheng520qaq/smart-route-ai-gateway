@@ -1,0 +1,36 @@
+# General
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+.DS_Store
+.vscode/
+.idea/
+
+# Backend
+backend/logs.db-shm
+backend/logs.db-wal
+backend/model_stats.json
+backend/config.backup.json
+backend/venv/
+backend/.env
+# config.json usually contains secrets, ignore it. Provide config.example.json instead if needed.
+# If you want to include a default config for users, consider renaming it or removing this line.
+# backend/config.json 
+
+# Frontend
+frontend/node_modules/
+# frontend/dist/ # Uncomment this if you want to ignore build artifacts. Kept for deployment convenience.
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# Root level runtime files
+logs.db-shm
+logs.db-wal
+model_stats.json
+# config.json

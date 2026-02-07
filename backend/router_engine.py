@@ -437,12 +437,23 @@ class RouterEngine:
              # Sequential: use max_rounds (full list loops) from config
              pass
         else:
-             # Adaptive/Random: use max_retries (max model switches)
-             # Set max_rounds to 1 (single pass) and slice the model list
+             # Adaptive/Random: use max_rounds as total attempt count
+             # We reuse 'max_rounds' config value as the limit for model switching
+             retry_limit = max_rounds
+             if retry_limit < 1: retry_limit = 1
+             
+             # Force max_rounds to 1 because we handle the count by slicing/extending the list
              max_rounds = 1
-             max_retries_count = config.retries.max_retries.get(level, 3)
-             if len(sorted_models) > max_retries_count:
-                 sorted_models = sorted_models[:max_retries_count]
+             
+             current_len = len(sorted_models)
+             if current_len > 0:
+                 if current_len < retry_limit:
+                     # Extend list if rounds > models (Cycle through models)
+                     multiplier = (retry_limit // current_len) + 1
+                     sorted_models = (sorted_models * multiplier)[:retry_limit]
+                 elif current_len > retry_limit:
+                     # Truncate if we have more models than requested rounds
+                     sorted_models = sorted_models[:retry_limit]
 
         # Log if strategy reordered them
         if strategy != "sequential" and sorted_models != models:
