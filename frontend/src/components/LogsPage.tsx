@@ -285,7 +285,32 @@ export function LogsPage() {
         </div>
 
         {/* Filter Bar */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-muted/30 p-4 rounded-lg border">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 bg-muted/30 p-4 rounded-lg border">
+            <div className="space-y-1 col-span-2 md:col-span-2 lg:col-span-2">
+                <Label className="text-xs">关键词搜索 (Keyword)</Label>
+                <Input 
+                    className="h-9" 
+                    placeholder="Search prompt, request or response..." 
+                    value={filters.keyword || ''}
+                    onChange={(e) => setFilters({...filters, keyword: e.target.value})}
+                />
+            </div>
+            <div className="space-y-1">
+                <Label className="text-xs">分类 (Category)</Label>
+                <Select
+                    value={filters.category || 'all'}
+                    onValueChange={(value) => setFilters({...filters, category: value})}
+                >
+                    <SelectTrigger className="h-9">
+                        <SelectValue placeholder="All Categories" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">全部</SelectItem>
+                        <SelectItem value="chat">日常聊天</SelectItem>
+                        <SelectItem value="tool">工具调用</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
             <div className="space-y-1">
                 <Label className="text-xs">级别 (Level)</Label>
                 <Select
