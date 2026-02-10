@@ -486,12 +486,18 @@ class RouterEngine:
         if max_rounds < 1: max_rounds = 1
         
         retry_count = 0
+        attempt_errors = []
+        failed_models_strategy = set()
         
         for round_idx in range(max_rounds):
             if round_idx > 0:
                 logger.info(f"Starting Round {round_idx + 1}/{max_rounds} for level {level}")
                 
             for model_id_entry in models:
+                # Skip hard failures always, skip soft failures only for this round
+                if model_id_entry in excluded_models or model_id_entry in round_failed_models:
+                    continue
+
                 try:
                     # Resolve Provider
                     target_model_id = model_id_entry
@@ -659,6 +665,21 @@ class RouterEngine:
                     
                     # Record Failure for Adaptive Routing with calculated penalty
                     self._record_failure(model_id_entry, penalty=penalty)
+
+                    # Accumulate error history
+                    detailed_error = f"[Round {round_idx + 1}|{display_model_name}] {reason}"
+                    if str(e) != reason:
+                         detailed_error += f" ({str(e)})"
+                    attempt_errors.append(detailed_error)
+
+                    # Strategy: 
+                    # 1. Hard Failures (Auth, Client Error) -> Exclude for entire request
+                    if "401" in error_msg or "403" in error_msg or "404" in error_msg:
+                         excluded_models.add(model_id_entry)
+                    # 2. Soft Failures (503 Service Unavailable, Timeout) -> Exclude for this round only
+                    #    (This allows retrying in next round if max_rounds > 1)
+                    elif "503" in error_msg or "Timeout" in error_msg:
+                         round_failed_models.add(model_id_entry)
 
                     logger.error(f"Model {display_model_name} failed (Round {round_idx + 1}): {e}")
                     last_error = e
