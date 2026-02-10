@@ -765,6 +765,73 @@ class RouterEngine:
 
                  response_data = response.json()
                  
+                 # 转换 v1/messages 响应格式为 OpenAI 兼容格式
+                 if "choices" not in response_data and "content" in response_data:
+                     # 提取 content 和 tool_calls
+                     content_raw = response_data.get("content")
+                     content_text = ""
+                     tool_calls = []
+                     
+                     if isinstance(content_raw, str):
+                         content_text = content_raw
+                     elif isinstance(content_raw, list):
+                         for item in content_raw:
+                             if isinstance(item, dict):
+                                 item_type = item.get("type")
+                                 if item_type == "text":
+                                     content_text += item.get("text", "")
+                                 elif item_type == "tool_use":
+                                     # 转换 Anthropic tool_use 到 OpenAI tool_call
+                                     # Anthropic: {"type": "tool_use", "id": "...", "name": "...", "input": {...}}
+                                     # OpenAI: {"id": "...", "type": "function", "function": {"name": "...", "arguments": "..."}}
+                                     tool_call = {
+                                         "id": item.get("id"),
+                                         "type": "function",
+                                         "function": {
+                                             "name": item.get("name"),
+                                             # OpenAI expect arguments as a JSON string, Anthropic provides a dict
+                                             "arguments": json.dumps(item.get("input", {}))
+                                         }
+                                     }
+                                     tool_calls.append(tool_call)
+                     
+                     # 构造 Message 对象
+                     message_obj = {
+                         "role": response_data.get("role", "assistant"),
+                         "content": content_text if content_text else None
+                     }
+                     if tool_calls:
+                         message_obj["tool_calls"] = tool_calls
+                     
+                     # 构造 OpenAI 格式响应
+                     mapped_response = {
+                         "id": response_data.get("id", f"msg_{int(time.time())}"),
+                         "object": "chat.completion",
+                         "created": int(time.time()),
+                         "model": response_data.get("model", model_id),
+                         "choices": [
+                             {
+                                 "index": 0,
+                                 "message": message_obj,
+                                 "finish_reason": response_data.get("stop_reason", "stop")
+                             }
+                         ],
+                         "usage": response_data.get("usage", {
+                             "prompt_tokens": 0,
+                             "completion_tokens": 0,
+                             "total_tokens": 0
+                         })
+                     }
+                     # 确保 usage 中的 key 是 OpenAI 兼容的 (Anthropic 使用 input_tokens/output_tokens)
+                     if "input_tokens" in mapped_response["usage"]:
+                         mapped_response["usage"]["prompt_tokens"] = mapped_response["usage"].pop("input_tokens")
+                     if "output_tokens" in mapped_response["usage"]:
+                         mapped_response["usage"]["completion_tokens"] = mapped_response["usage"].pop("output_tokens")
+                     if "total_tokens" not in mapped_response["usage"]:
+                         mapped_response["usage"]["total_tokens"] = mapped_response["usage"].get("prompt_tokens", 0) + mapped_response["usage"].get("completion_tokens", 0)
+                         
+                     response_data = mapped_response
+                 
                  full_resp_time = time.time()
                  duration_since_ttft = (full_resp_time - ttft_time)*1000
                  
