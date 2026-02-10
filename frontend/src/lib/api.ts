@@ -45,6 +45,7 @@ export interface HealthCheckConfig {
 export interface ProviderConfig {
   base_url: string;
   api_key: string;
+  protocol?: string;
 }
 
 export interface GeneralConfig {

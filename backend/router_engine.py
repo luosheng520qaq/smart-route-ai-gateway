@@ -479,6 +479,7 @@ class RouterEngine:
                     target_model_id = model_id_entry
                     target_base_url = config.providers.upstream.base_url
                     target_api_key = config.providers.upstream.api_key
+                    target_protocol = "openai"
                     provider_label = None
                     
                     # 1. Check if model entry has "provider/model" format
@@ -492,6 +493,7 @@ class RouterEngine:
                             target_base_url = provider.base_url
                             target_api_key = provider.api_key
                             target_model_id = real_model_id
+                            target_protocol = getattr(provider, "protocol", "openai")
                             provider_label = provider_id
                         else:
                             logger.warning(f"Provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
@@ -504,6 +506,7 @@ class RouterEngine:
                             provider = config.providers.custom[provider_id]
                             target_base_url = provider.base_url
                             target_api_key = provider.api_key
+                            target_protocol = getattr(provider, "protocol", "openai")
                             provider_label = provider_id
                         else:
                              logger.warning(f"Mapped provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
@@ -532,7 +535,7 @@ class RouterEngine:
                     # Let's modify _call_upstream to return metadata along with response?
                     # Or pass the add_trace_event callback.
                     
-                    response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms, trace_id, retry_count, call_start_time, add_trace_event)
+                    response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms, trace_id, retry_count, call_start_time, add_trace_event, protocol=target_protocol)
                     
                     # Record Success for Adaptive Routing
                     self._record_success(model_id_entry)
@@ -656,7 +659,7 @@ class RouterEngine:
         )
         raise HTTPException(status_code=502, detail=f"All models failed. Last error: {str(last_error)}")
 
-    async def _call_upstream(self, request: ChatCompletionRequest, model_id: str, base_url: str, api_key: str, timeout_ms: int, stream_timeout_ms: int, trace_id: str, retry_count: int, req_start_time: float, trace_callback=None) -> Dict[str, Any]:
+    async def _call_upstream(self, request: ChatCompletionRequest, model_id: str, base_url: str, api_key: str, timeout_ms: int, stream_timeout_ms: int, trace_id: str, retry_count: int, req_start_time: float, trace_callback=None, protocol: str = "openai") -> Dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
@@ -665,7 +668,12 @@ class RouterEngine:
         # Prepare payload
         payload = request.model_dump(exclude_none=True)
         payload["model"] = model_id
-        payload["stream"] = True # Force stream for aggregation
+        
+        # Check Protocol for Stream
+        if protocol == "v1-messages":
+            payload["stream"] = False
+        else:
+            payload["stream"] = True # Force stream for aggregation
         
         config = config_manager.get_config()
         
@@ -681,19 +689,7 @@ class RouterEngine:
         if model_id in config.params.model_params:
             for key, value in config.params.model_params[model_id].items():
                 if key not in payload or request.model_dump().get(key) is None: 
-                    # Note: We use request.model_dump().get(key) is None to check if user explicitly set it.
-                    # But payload was created with exclude_none=True, so if it's not in payload, it was None.
-                    # However, we just added global params to payload.
-                    # So we should check if the key was originally in the request?
-                    # Actually, simply overwriting if it was NOT in the original request is the right logic.
-                    # But wait, payload currently contains Request params (if not None) + Global params (if not in Request).
-                    # If Model param exists, it should override Global param, but NOT Request param.
-                    
-                    # Let's refine:
-                    # Start with Global Params
-                    # Update with Model Params
-                    # Update with Request Params (that are not None)
-                    pass
+                     pass
 
         # Re-construct payload to ensure correct precedence
         final_payload = {}
@@ -711,7 +707,10 @@ class RouterEngine:
         
         # Ensure critical fields
         final_payload["model"] = model_id
-        final_payload["stream"] = True
+        if protocol == "v1-messages":
+            final_payload["stream"] = False
+        else:
+            final_payload["stream"] = True
         
         payload = final_payload
         # -----------------------------
@@ -732,10 +731,64 @@ class RouterEngine:
         
         if self._client is None: await self.startup()
 
+        # Handle v1-messages Protocol (No Stream, Different Endpoint Logic)
+        if protocol == "v1-messages":
+             base = base_url.rstrip('/')
+             url = f"{base}/messages"
+             
+             try:
+                 response = await self._client.post(url, json=payload, headers=headers, timeout=timeout_config)
+                 
+                 ttft_time = time.time()
+                 duration_ttft = (ttft_time - req_start_time) * 1000
+                 trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count, details=f"完整响应 (No Stream) | 模型: {model_id}")
+                 if trace_callback:
+                     trace_callback("FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count)
+
+                 if response.status_code != 200:
+                     error_str = response.text
+                     should_retry = False
+                     if response.status_code in config.retries.conditions.status_codes:
+                         should_retry = True
+                     
+                     if not should_retry:
+                         lower_error = error_str.lower()
+                         for k in config.retries.conditions.error_keywords:
+                             if k in lower_error:
+                                 should_retry = True
+                                 break
+                     
+                     if should_retry:
+                         raise Exception(f"Upstream Error (Retryable): {response.status_code} - {error_str}")
+                     else:
+                         raise Exception(f"Upstream Error: {response.status_code} - {error_str}")
+
+                 response_data = response.json()
+                 
+                 full_resp_time = time.time()
+                 duration_since_ttft = (full_resp_time - ttft_time)*1000
+                 
+                 usage = response_data.get("usage", {})
+                 p_tok = usage.get("prompt_tokens", 0)
+                 c_tok = usage.get("completion_tokens", 0)
+                 
+                 trace_logger.log(trace_id, "FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count, details=f"完整响应接收完毕 | Tokens: {p_tok}+{c_tok}")
+                 if trace_callback:
+                     trace_callback("FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
+                 
+                 return response_data
+                 
+             except httpx.ReadTimeout:
+                raise Exception("Total Timeout (Read): Read timeout from upstream")
+             except httpx.ConnectTimeout:
+                raise Exception("Connect Timeout: Connect timeout to upstream")
+             except Exception:
+                 raise
+
         try:
             # Manually manage the stream context to decouple TTFT timeout from Body timeout
             # Use global client with specific request timeout
-            ctx = self._client.stream("POST", f"{base_url}/chat/completions", json=payload, headers=headers, timeout=timeout_config)
+            ctx = self._client.stream("POST", f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=headers, timeout=timeout_config)
             
             try:
                 # Enforce TTFT (Wait for Headers)

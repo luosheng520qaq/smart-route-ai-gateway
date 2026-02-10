@@ -324,6 +324,30 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                                 <Input value={key} disabled />
                             </div>
                             <div className="grid gap-2">
+                                <Label>协议类型 (Protocol)</Label>
+                                <Select 
+                                    value={provider.protocol || "openai"} 
+                                    onValueChange={(val) => setConfig({
+                                        ...config,
+                                        providers: {
+                                            ...config.providers,
+                                            custom: {
+                                                ...config.providers.custom,
+                                                [key]: {...provider, protocol: val}
+                                            }
+                                        }
+                                    })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="openai">Standard (v1/chat/completions)</SelectItem>
+                                        <SelectItem value="v1-messages">Messages (v1/messages + No Stream)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
                                 <Label>Base URL</Label>
                                 <Input 
                                     value={provider.base_url}
@@ -367,7 +391,7 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                                     ...config.providers,
                                     custom: {
                                         ...config.providers.custom,
-                                        [id]: {base_url: "", api_key: ""}
+                                        [id]: {base_url: "", api_key: "", protocol: "openai"}
                                     }
                                 }
                             })

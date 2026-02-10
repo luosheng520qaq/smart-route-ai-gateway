@@ -75,6 +75,7 @@ class SecurityConfig(BaseModel):
 class ProviderConfig(BaseModel):
     base_url: str
     api_key: str
+    protocol: str = "openai" # openai, v1-messages
 
 class UpstreamConfig(BaseModel):
     base_url: str = "https://api.openai.com/v1"
