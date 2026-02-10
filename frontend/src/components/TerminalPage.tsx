@@ -6,8 +6,11 @@ import { WebLinksAddon } from 'xterm-addon-web-links';
 import 'xterm/css/xterm.css';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Eraser, Pause, Play } from 'lucide-react';
+import { Download, Eraser, Pause, Play, Wifi, WifiOff, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function TerminalPage() {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -24,13 +27,18 @@ export function TerminalPage() {
     // Initialize XTerm
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontSize: 13,
+      lineHeight: 1.4,
+      fontFamily: 'JetBrains Mono, Menlo, Monaco, "Courier New", monospace',
       theme: {
-        background: '#1e1e1e',
-        foreground: '#d4d4d4',
+        background: '#09090b', // zinc-950
+        foreground: '#e4e4e7', // zinc-200
+        selectionBackground: '#27272a', // zinc-800
+        cursor: '#a1a1aa', // zinc-400
       },
       convertEol: true,
+      disableStdin: true, // Read-only
+      scrollback: 10000,
     });
     
     const fitAddon = new FitAddon();
@@ -47,15 +55,21 @@ export function TerminalPage() {
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Handle resize
-    const handleResize = () => fitAddon.fit();
-    window.addEventListener('resize', handleResize);
+    // Handle resize with ResizeObserver
+    const resizeObserver = new ResizeObserver(() => {
+        // Debounce slightly to avoid flicker
+        requestAnimationFrame(() => fitAddon.fit());
+    });
+    
+    if (terminalRef.current) {
+        resizeObserver.observe(terminalRef.current);
+    }
 
     // Connect WS
     connectWebSocket();
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       wsRef.current?.close();
       term.dispose();
     };
@@ -64,11 +78,6 @@ export function TerminalPage() {
   const connectWebSocket = () => {
     // Use relative path or env
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Assuming backend is on same host/port if served via fallback, otherwise adjust
-    // For dev (Vite default 5173, Backend 6688), we need hardcoded or env
-    // But api.ts uses relative path for API_BASE_URL which is empty string.
-    // So we assume proxy or same origin. 
-    // If dev mode: 
     const host = process.env.NODE_ENV === 'development' ? 'localhost:6688' : window.location.host;
     const wsUrl = `${protocol}//${host}/ws/logs`;
     
@@ -76,12 +85,12 @@ export function TerminalPage() {
     
     ws.onopen = () => {
       setIsConnected(true);
-      xtermRef.current?.writeln('\x1b[32m[System] Connected to log stream\x1b[0m');
+      xtermRef.current?.writeln('\x1b[32m✓ [System] 已连接到日志流\x1b[0m');
     };
     
     ws.onclose = () => {
       setIsConnected(false);
-      xtermRef.current?.writeln('\x1b[31m[System] Disconnected. Reconnecting in 3s...\x1b[0m');
+      xtermRef.current?.writeln('\x1b[31m✗ [System] 连接断开，3秒后重连...\x1b[0m');
       setTimeout(connectWebSocket, 3000);
     };
     
@@ -102,32 +111,40 @@ export function TerminalPage() {
       }
 
       // Format message for CMD-like appearance
-      // Add timestamp if missing
       let displayMsg = msg;
       if (!msg.startsWith('[')) {
-          const timestamp = new Date().toLocaleTimeString();
+          const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
           displayMsg = `[${timestamp}] ${msg}`;
       }
 
-      // Enhanced Colorizing for CMD style
-      // Green for success/info, Red for errors, Yellow for warnings/retries, Cyan for system info
-      if (displayMsg.includes('| success')) {
-        displayMsg = displayMsg.replace('| success', '|\x1b[32m success \x1b[0m');
-      } else if (displayMsg.includes('| fail') || displayMsg.includes('error') || displayMsg.includes('Error') || displayMsg.includes('Exception')) {
-        displayMsg = displayMsg.replace(/(\| fail|error|Error|Exception)/g, (match: string) => `\x1b[31m${match}\x1b[0m`);
-      } else if (displayMsg.includes('| retry') || displayMsg.includes('warning') || displayMsg.includes('Warning')) {
-         displayMsg = displayMsg.replace(/(\| retry|warning|Warning)/g, (match: string) => `\x1b[33m${match}\x1b[0m`);
-      } else if (displayMsg.includes('[System]')) {
-         displayMsg = displayMsg.replace('[System]', '\x1b[36m[System]\x1b[0m');
-      }
+      // --- Enhanced Coloring ---
       
-      // Highlight specific keywords like REQ_RECEIVED, MODEL_CALL_START etc
-      const keywords = ["REQ_RECEIVED", "ROUTER_START", "ROUTER_END", "MODEL_CALL_START", "FIRST_TOKEN", "FULL_RESPONSE", "ALL_FAILED"];
-      keywords.forEach(k => {
-          if (displayMsg.includes(k)) {
-              displayMsg = displayMsg.replace(k, `\x1b[1;36m${k}\x1b[0m`);
-          }
-      });
+      // 1. Time: [HH:MM:SS] -> Gray
+      displayMsg = displayMsg.replace(/^(\[\d{2}:\d{2}:\d{2}(\.\d+)?\])/, '\x1b[90m$1\x1b[0m');
+
+      // 2. Stage: 【Stage】 -> Cyan/Blue
+      // Need to handle regex carefully to avoid matching too much
+      displayMsg = displayMsg.replace(/【(.*?)】/g, '\x1b[36m【$1】\x1b[0m');
+
+      // 3. Status: 成功 -> Green, 失败/错误 -> Red, Warning -> Yellow
+      displayMsg = displayMsg.replace(/(成功|success)/gi, '\x1b[32m$1\x1b[0m');
+      displayMsg = displayMsg.replace(/(失败|fail|error|exception)/gi, '\x1b[31m$1\x1b[0m');
+      displayMsg = displayMsg.replace(/(警告|warning|retry)/gi, '\x1b[33m$1\x1b[0m');
+      
+      // 4. Details/Meta
+      // (耗时: 123ms) -> Magenta
+      displayMsg = displayMsg.replace(/(\(耗时: .*?\))/g, '\x1b[35m$1\x1b[0m');
+      
+      // [重试: N] -> Yellow
+      displayMsg = displayMsg.replace(/(\[重试: \d+\])/g, '\x1b[33m$1\x1b[0m');
+      
+      // Trace ID <abc> -> Dim
+      displayMsg = displayMsg.replace(/(<[a-f0-9-]{8}>)$/i, '\x1b[2m$1\x1b[0m');
+
+      // Special handling for [System]
+      if (displayMsg.includes('[System]')) {
+         displayMsg = displayMsg.replace('[System]', '\x1b[1;36m[System]\x1b[0m');
+      }
 
       xtermRef.current?.writeln(displayMsg);
     };
@@ -146,7 +163,7 @@ export function TerminalPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `smart-route-logs-${new Date().toISOString()}.log`;
+    a.download = `smart-route-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -155,38 +172,83 @@ export function TerminalPage() {
   };
 
   return (
-    <div className="flex flex-col h-full space-y-4">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">实时终端</h2>
-          <p className="text-muted-foreground flex items-center gap-2">
-            Status: 
-            <span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            {isConnected ? 'Connected' : 'Disconnected'}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Input 
-            className="w-48" 
-            placeholder="Filter logs..." 
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-          <Button variant="outline" size="icon" onClick={() => setIsPaused(!isPaused)}>
-            {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-          </Button>
-          <Button variant="outline" size="icon" onClick={handleClear}>
-            <Eraser className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="icon" onClick={handleExport}>
-            <Download className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-      
-      <div className="flex-1 min-h-[500px] border rounded-lg overflow-hidden bg-[#1e1e1e] p-2 relative">
-         <div ref={terminalRef} className="h-full w-full" />
-      </div>
+    <div className="h-[calc(100vh-6rem)] animate-in fade-in duration-500">
+      <Card className="h-full flex flex-col shadow-sm border-zinc-200 dark:border-zinc-800">
+        <CardHeader className="flex flex-row items-center justify-between py-3 px-4 space-y-0 border-b">
+          <div className="flex items-center gap-3">
+             <div className="p-2 bg-primary/10 rounded-lg">
+                <TerminalIcon className="h-5 w-5 text-primary" />
+             </div>
+             <div>
+                <CardTitle className="text-lg font-semibold">实时终端</CardTitle>
+                <div className="flex items-center gap-2 mt-1">
+                    <Badge variant={isConnected ? "default" : "destructive"} className="h-5 px-1.5 text-[10px] gap-1 font-normal">
+                        {isConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+                        {isConnected ? '已连接' : '断开连接'}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground hidden sm:inline-block">
+                        ws://{process.env.NODE_ENV === 'development' ? 'localhost:6688' : window.location.host}/ws/logs
+                    </span>
+                </div>
+             </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <div className="relative hidden sm:block">
+                <Input 
+                  className="w-48 h-8 text-xs font-mono bg-muted/50" 
+                  placeholder="grep ..." 
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                />
+            </div>
+            
+            <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className={`h-8 w-8 p-0 ${isPaused ? 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-600' : ''}`}
+                            onClick={() => setIsPaused(!isPaused)}
+                        >
+                            {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <p>{isPaused ? "继续滚动" : "暂停滚动"}</p>
+                    </TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={handleClear}>
+                            <Eraser className="h-4 w-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <p>清空屏幕</p>
+                    </TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                         <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={handleExport}>
+                            <Download className="h-4 w-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <p>导出日志</p>
+                    </TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
+          </div>
+        </CardHeader>
+        
+        <CardContent className="flex-1 p-0 relative min-h-0 bg-[#09090b]">
+           <div ref={terminalRef} className="absolute inset-0 p-4 overflow-hidden" />
+        </CardContent>
+      </Card>
     </div>
   );
 }
