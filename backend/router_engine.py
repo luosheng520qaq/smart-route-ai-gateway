@@ -394,6 +394,7 @@ class RouterEngine:
         return "t1"
 
     async def route_request(self, request: ChatCompletionRequest, background_tasks: BackgroundTasks):
+        trace_logger.log_separator("=")
         start_time = time.time() # Request Arrived (T0)
         trace_id = str(uuid.uuid4())
         
@@ -610,6 +611,7 @@ class RouterEngine:
                         level, display_model_name, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data), trace_events, None, retry_count, prompt_tokens, completion_tokens, token_source
                     )
                     
+                    trace_logger.log_separator("=")
                     return response_data
                 except Exception as e:
                     # 4. Log: Retry/Fail
@@ -697,6 +699,7 @@ class RouterEngine:
             self._log_request,
             level, "all", duration, "error", user_prompt, request.model_dump_json(), str(last_error), trace_events, last_stack_trace, retry_count
         )
+        trace_logger.log_separator("=")
         raise HTTPException(status_code=502, detail=f"All models failed. Last error: {str(last_error)}")
 
     async def _call_upstream(self, request: ChatCompletionRequest, model_id: str, base_url: str, api_key: str, timeout_ms: int, stream_timeout_ms: int, trace_id: str, retry_count: int, req_start_time: float, trace_callback=None, protocol: str = "openai") -> Dict[str, Any]:

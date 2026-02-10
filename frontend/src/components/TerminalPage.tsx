@@ -27,14 +27,32 @@ export function TerminalPage() {
     // Initialize XTerm
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
-      lineHeight: 1.4,
+      fontSize: 14,
+      lineHeight: 1.5,
       fontFamily: 'JetBrains Mono, Menlo, Monaco, "Courier New", monospace',
       theme: {
-        background: '#09090b', // zinc-950
-        foreground: '#e4e4e7', // zinc-200
-        selectionBackground: '#27272a', // zinc-800
+        background: '#18181b', // zinc-900 (Softer than black)
+        foreground: '#f4f4f5', // zinc-100
+        selectionBackground: '#3f3f46', // zinc-700
         cursor: '#a1a1aa', // zinc-400
+        
+        // ANSI Colors (VS Code Dark-ish)
+        black: '#000000',
+        red: '#cd3131',
+        green: '#0dbc79',
+        yellow: '#e5e510',
+        blue: '#2472c8',
+        magenta: '#bc3fbc',
+        cyan: '#11a8cd',
+        white: '#e5e5e5',
+        brightBlack: '#666666',
+        brightRed: '#f14c4c',
+        brightGreen: '#23d18b',
+        brightYellow: '#f5f543',
+        brightBlue: '#3b8eea',
+        brightMagenta: '#d670d6',
+        brightCyan: '#29b8db',
+        brightWhite: '#e5e5e5',
       },
       convertEol: true,
       disableStdin: true, // Read-only
@@ -112,38 +130,47 @@ export function TerminalPage() {
 
       // Format message for CMD-like appearance
       let displayMsg = msg;
-      if (!msg.startsWith('[')) {
+      
+      // Check for separator (starts with at least 5 dashes or equals)
+      const isSeparator = /^[=-]{5,}/.test(msg.trim());
+
+      if (isSeparator) {
+           // Make separator bold and bright blue for visibility
+           displayMsg = `\x1b[1;94m${msg}\x1b[0m`;
+      } else if (!msg.startsWith('[')) {
           const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
           displayMsg = `[${timestamp}] ${msg}`;
       }
 
       // --- Enhanced Coloring ---
       
-      // 1. Time: [HH:MM:SS] -> Gray
-      displayMsg = displayMsg.replace(/^(\[\d{2}:\d{2}:\d{2}(\.\d+)?\])/, '\x1b[90m$1\x1b[0m');
-
-      // 2. Stage: 【Stage】 -> Cyan/Blue
-      // Need to handle regex carefully to avoid matching too much
-      displayMsg = displayMsg.replace(/【(.*?)】/g, '\x1b[36m【$1】\x1b[0m');
-
-      // 3. Status: 成功 -> Green, 失败/错误 -> Red, Warning -> Yellow
-      displayMsg = displayMsg.replace(/(成功|success)/gi, '\x1b[32m$1\x1b[0m');
-      displayMsg = displayMsg.replace(/(失败|fail|error|exception)/gi, '\x1b[31m$1\x1b[0m');
-      displayMsg = displayMsg.replace(/(警告|warning|retry)/gi, '\x1b[33m$1\x1b[0m');
-      
-      // 4. Details/Meta
-      // (耗时: 123ms) -> Magenta
-      displayMsg = displayMsg.replace(/(\(耗时: .*?\))/g, '\x1b[35m$1\x1b[0m');
-      
-      // [重试: N] -> Yellow
-      displayMsg = displayMsg.replace(/(\[重试: \d+\])/g, '\x1b[33m$1\x1b[0m');
-      
-      // Trace ID <abc> -> Dim
-      displayMsg = displayMsg.replace(/(<[a-f0-9-]{8}>)$/i, '\x1b[2m$1\x1b[0m');
-
-      // Special handling for [System]
-      if (displayMsg.includes('[System]')) {
-         displayMsg = displayMsg.replace('[System]', '\x1b[1;36m[System]\x1b[0m');
+      if (!isSeparator) {
+        // 1. Time: [HH:MM:SS] -> Gray
+        displayMsg = displayMsg.replace(/^(\[\d{2}:\d{2}:\d{2}(\.\d+)?\])/, '\x1b[90m$1\x1b[0m');
+  
+        // 2. Stage: 【Stage】 -> Cyan/Blue
+        // Need to handle regex carefully to avoid matching too much
+        displayMsg = displayMsg.replace(/【(.*?)】/g, '\x1b[36m【$1】\x1b[0m');
+  
+        // 3. Status: 成功 -> Green, 失败/错误 -> Red, Warning -> Yellow
+        displayMsg = displayMsg.replace(/(成功|success)/gi, '\x1b[32m$1\x1b[0m');
+        displayMsg = displayMsg.replace(/(失败|fail|error|exception)/gi, '\x1b[31m$1\x1b[0m');
+        displayMsg = displayMsg.replace(/(警告|warning|retry)/gi, '\x1b[33m$1\x1b[0m');
+        
+        // 4. Details/Meta
+        // (耗时: 123ms) -> Magenta
+        displayMsg = displayMsg.replace(/(\(耗时: .*?\))/g, '\x1b[35m$1\x1b[0m');
+        
+        // [重试: N] -> Yellow
+        displayMsg = displayMsg.replace(/(\[重试: \d+\])/g, '\x1b[33m$1\x1b[0m');
+        
+        // Trace ID <abc> -> Dim
+        displayMsg = displayMsg.replace(/(<[a-f0-9-]{8}>)$/i, '\x1b[2m$1\x1b[0m');
+  
+        // Special handling for [System]
+        if (displayMsg.includes('[System]')) {
+           displayMsg = displayMsg.replace('[System]', '\x1b[1;36m[System]\x1b[0m');
+        }
       }
 
       xtermRef.current?.writeln(displayMsg);

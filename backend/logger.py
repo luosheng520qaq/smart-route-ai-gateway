@@ -77,6 +77,12 @@ class TraceLogger:
         # 3. Broadcast to WebSockets
         self.broadcast(msg)
 
+    def log_separator(self, char="-", length=60):
+        msg = char * length
+        self.logger.info(msg)
+        self.buffer.append(msg)
+        self.broadcast(msg)
+
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_websockets.append(websocket)

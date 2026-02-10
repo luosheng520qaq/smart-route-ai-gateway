@@ -40,12 +40,29 @@
 
 ## 🚀 快速开始
 
-### 1. 环境准备
+### 1. 快速安装
 
-- Python 3.10+
-- Node.js 18+ (仅前端构建需要)
+#### Windows
+双击运行目录下的 `start.bat` 即可自动完成环境配置与启动。
 
-### 2. 后端部署
+#### Linux / macOS
+我们提供了一键安装脚本，自动处理环境依赖、构建与启动。
+
+推荐使用以下命令进行快速安装（只需一行）：
+
+```bash
+bash <(curl -sL https://raw.githubusercontent.com/luosheng520qaq/smart-route-ai-gateway/main/install.sh)
+```
+
+该命令会自动：
+1. 检查并安装 Git (如果需要)。
+2. 克隆项目代码。
+3. 创建 Python 虚拟环境并安装依赖。
+4. 自动生成启动脚本。
+
+安装完成后，脚本会提示你如何启动服务。
+
+### 2. 手动部署 (如果不使用脚本)
 
 ```bash
 cd backend
