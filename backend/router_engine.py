@@ -487,9 +487,10 @@ class RouterEngine:
         
         retry_count = 0
         attempt_errors = []
-        failed_models_strategy = set()
+        excluded_models = set()
         
         for round_idx in range(max_rounds):
+            round_failed_models = set()
             if round_idx > 0:
                 logger.info(f"Starting Round {round_idx + 1}/{max_rounds} for level {level}")
                 
