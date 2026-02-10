@@ -40,6 +40,7 @@ class RequestLog(Base):
     prompt_tokens = Column(Integer, default=0)
     completion_tokens = Column(Integer, default=0)
     token_source = Column(String, default="upstream") # upstream / local
+    category = Column(String, default="unknown", index=True) # tool, chat, unknown
 
 class ConfigHistory(Base):
     __tablename__ = "config_history"
@@ -92,6 +93,11 @@ async def init_db():
 
         try:
             await conn.execute(text("ALTER TABLE request_logs ADD COLUMN token_source TEXT DEFAULT 'upstream'"))
+        except Exception:
+            pass # Already exists
+
+        try:
+            await conn.execute(text("ALTER TABLE request_logs ADD COLUMN category TEXT DEFAULT 'unknown'"))
         except Exception:
             pass # Already exists
 

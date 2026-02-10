@@ -31,9 +31,13 @@ export function LogsPage() {
     level: 'all',
     status: 'all',
     model: '',
+    category: 'all',
+    keyword: '',
     start_date: '',
     end_date: ''
   });
+  
+  const [jumpPage, setJumpPage] = useState("");
   
   // Date State Helper
   const [startDate, setStartDate] = useState<Date | undefined>();
@@ -575,24 +579,59 @@ export function LogsPage() {
           </Table>
         </CardContent>
         {total > pageSize && (
-            <div className="p-4 flex justify-center gap-2 border-t">
-                <Button 
-                    variant="outline" 
-                    disabled={page === 1} 
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                >
-                    上一页
-                </Button>
-                <span className="flex items-center text-sm text-muted-foreground">
-                    第 {page} 页 / 共 {Math.ceil(total / pageSize)} 页
-                </span>
-                <Button 
-                    variant="outline" 
-                    disabled={page * pageSize >= total} 
-                    onClick={() => setPage(p => p + 1)}
-                >
-                    下一页
-                </Button>
+            <div className="p-4 flex flex-col sm:flex-row justify-center items-center gap-4 border-t">
+                <div className="flex items-center gap-2">
+                    <Button 
+                        variant="outline" 
+                        disabled={page === 1} 
+                        onClick={() => setPage(p => Math.max(1, p - 1))}
+                    >
+                        上一页
+                    </Button>
+                    <span className="flex items-center text-sm text-muted-foreground whitespace-nowrap">
+                        第 {page} 页 / 共 {Math.ceil(total / pageSize)} 页
+                    </span>
+                    <Button 
+                        variant="outline" 
+                        disabled={page * pageSize >= total} 
+                        onClick={() => setPage(p => p + 1)}
+                    >
+                        下一页
+                    </Button>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">跳转至:</span>
+                    <Input 
+                        className="w-16 h-8 text-center" 
+                        value={jumpPage}
+                        onChange={(e) => setJumpPage(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                const p = parseInt(jumpPage);
+                                const maxPage = Math.ceil(total / pageSize);
+                                if (!isNaN(p) && p >= 1 && p <= maxPage) {
+                                    setPage(p);
+                                    setJumpPage("");
+                                }
+                            }
+                        }}
+                    />
+                    <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => {
+                            const p = parseInt(jumpPage);
+                            const maxPage = Math.ceil(total / pageSize);
+                            if (!isNaN(p) && p >= 1 && p <= maxPage) {
+                                setPage(p);
+                                setJumpPage("");
+                            }
+                        }}
+                    >
+                        Go
+                    </Button>
+                </div>
             </div>
         )}
       </Card>

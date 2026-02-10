@@ -934,6 +934,20 @@ class RouterEngine:
             try:
                 # Optimize Logging: Extract only necessary info
                 
+                # Determine Category
+                category = "chat"
+                try:
+                    # Check for tool calls in response
+                    if "tool_calls" in res_json:
+                         category = "tool"
+                    
+                    # Check for tool calls in request (if any)
+                    # Simple string check for speed
+                    elif '"tool_calls":' in req_json or '"tools":' in req_json:
+                         category = "tool"
+                except:
+                    pass
+
                 # 1. Request: Only user messages
                 clean_req = "Check user_prompt_preview"
                 try:

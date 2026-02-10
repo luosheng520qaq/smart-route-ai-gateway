@@ -121,6 +121,7 @@ export interface RequestLog {
   prompt_tokens?: number;
   completion_tokens?: number;
   token_source?: string;
+  category: string;
 }
 
 export interface TraceEvent {
@@ -176,6 +177,8 @@ export interface LogFilters {
   level?: string;
   status?: string;
   model?: string;
+  category?: string;
+  keyword?: string;
   start_date?: string;
   end_date?: string;
 }
@@ -188,6 +191,8 @@ export const fetchLogs = async (page = 1, pageSize = 20, filters: LogFilters = {
   if (filters.level && filters.level !== 'all') params.append('level', filters.level);
   if (filters.status && filters.status !== 'all') params.append('status', filters.status);
   if (filters.model) params.append('model', filters.model);
+  if (filters.category && filters.category !== 'all') params.append('category', filters.category);
+  if (filters.keyword) params.append('keyword', filters.keyword);
   if (filters.start_date) params.append('start_date', filters.start_date);
   if (filters.end_date) params.append('end_date', filters.end_date);
   
@@ -200,6 +205,8 @@ export const exportLogs = async (filters: LogFilters = {}) => {
   if (filters.level && filters.level !== 'all') params.append('level', filters.level);
   if (filters.status && filters.status !== 'all') params.append('status', filters.status);
   if (filters.model) params.append('model', filters.model);
+  if (filters.category && filters.category !== 'all') params.append('category', filters.category);
+  if (filters.keyword) params.append('keyword', filters.keyword);
   if (filters.start_date) params.append('start_date', filters.start_date);
   if (filters.end_date) params.append('end_date', filters.end_date);
   

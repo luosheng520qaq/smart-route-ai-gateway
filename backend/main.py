@@ -353,6 +353,8 @@ async def get_logs(
     level: Optional[str] = None,
     status: Optional[str] = None,
     model: Optional[str] = None,
+    category: Optional[str] = None,
+    keyword: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
@@ -369,6 +371,15 @@ async def get_logs(
         conditions.append(RequestLog.status == status)
     if model:
         conditions.append(RequestLog.model.contains(model))
+    if category:
+        conditions.append(RequestLog.category == category)
+    if keyword:
+        keyword_cond = or_(
+            RequestLog.user_prompt_preview.contains(keyword),
+            RequestLog.full_request.contains(keyword),
+            RequestLog.full_response.contains(keyword)
+        )
+        conditions.append(keyword_cond)
     if start_date:
         try:
             sd = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
@@ -407,6 +418,8 @@ async def export_logs(
     level: Optional[str] = None,
     status: Optional[str] = None,
     model: Optional[str] = None,
+    category: Optional[str] = None,
+    keyword: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
@@ -418,6 +431,14 @@ async def export_logs(
     if level: conditions.append(RequestLog.level == level)
     if status: conditions.append(RequestLog.status == status)
     if model: conditions.append(RequestLog.model.contains(model))
+    if category: conditions.append(RequestLog.category == category)
+    if keyword:
+        keyword_cond = or_(
+            RequestLog.user_prompt_preview.contains(keyword),
+            RequestLog.full_request.contains(keyword),
+            RequestLog.full_response.contains(keyword)
+        )
+        conditions.append(keyword_cond)
     if start_date:
         try:
             sd = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
