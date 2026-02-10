@@ -15,7 +15,7 @@ import { ChangePassword } from './ChangePassword';
 import { ChangeUsername } from './ChangeUsername';
 import { useAuth } from '@/lib/auth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -126,6 +126,48 @@ function TabItem({ value, icon, label }: { value: string, icon: any, label: stri
 }
 
 // --- Sub-Components ---
+
+function BatchAddDialog({ onAdd }: { onAdd: (models: string[]) => void }) {
+    const [text, setText] = useState("");
+    const [open, setOpen] = useState(false);
+
+    const handleConfirm = () => {
+        const models = text.split('\n').map(s => s.trim()).filter(s => s);
+        if (models.length > 0) {
+            onAdd(models);
+            setText("");
+            setOpen(false);
+            toast.success(`已添加 ${models.length} 个模型`);
+        } else {
+             toast.warning("请输入模型名称");
+        }
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                    <Plus className="h-4 w-4 mr-1"/> 批量添加
+                </Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>批量添加模型</DialogTitle>
+                    <DialogDescription>每行输入一个模型名称，点击确定保存。</DialogDescription>
+                </DialogHeader>
+                <Textarea 
+                    value={text} 
+                    onChange={e => setText(e.target.value)} 
+                    placeholder={"gpt-4\ngpt-3.5-turbo\n..."}
+                    className="h-[300px] font-mono"
+                />
+                <DialogFooter>
+                    <Button onClick={handleConfirm}>确定</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
 
 function GeneralSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
     return (
@@ -264,12 +306,18 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                         </Button>
                                     </div>
                                 ))}
-                                <Button variant="outline" size="sm" onClick={() => {
-                                    const newList = [...config.models[level as 't1'|'t2'|'t3'], ""];
-                                    updateList(level as any, newList);
-                                }}>
-                                    <Plus className="h-4 w-4 mr-1"/> 添加模型
-                                </Button>
+                                <div className="flex gap-2">
+                                    <Button variant="outline" size="sm" onClick={() => {
+                                        const newList = [...config.models[level as 't1'|'t2'|'t3'], ""];
+                                        updateList(level as any, newList);
+                                    }}>
+                                        <Plus className="h-4 w-4 mr-1"/> 添加模型
+                                    </Button>
+                                    <BatchAddDialog onAdd={(models) => {
+                                        const newList = [...config.models[level as 't1'|'t2'|'t3'], ...models];
+                                        updateList(level as any, newList);
+                                    }} />
+                                </div>
                             </div>
                         </CardContent>
                     </Card>
@@ -280,6 +328,47 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
 }
 
 function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
+    const providers = config.providers.custom || {};
+    const providerIds = Object.keys(providers);
+    const [selectedId, setSelectedId] = useState<string>(providerIds.length > 0 ? providerIds[0] : "");
+
+    useEffect(() => {
+        if (selectedId && !providers[selectedId] && providerIds.length > 0) {
+            setSelectedId(providerIds[0]);
+        } else if (!selectedId && providerIds.length > 0) {
+            setSelectedId(providerIds[0]);
+        }
+    }, [providerIds.join(",")]);
+
+    const handleAddProvider = () => {
+         const id = prompt("输入 Provider ID (如 azure):");
+         if(id) {
+             if (providers[id]) {
+                 toast.error("Provider ID 已存在");
+                 return;
+             }
+             setConfig({
+                 ...config,
+                 providers: {
+                     ...config.providers,
+                     custom: {
+                         ...config.providers.custom,
+                         [id]: {base_url: "", api_key: "", protocol: "openai"}
+                     }
+                 }
+             });
+             setSelectedId(id);
+         }
+    };
+
+    const handleDeleteProvider = (id: string) => {
+        const newCustom = {...config.providers.custom};
+        delete newCustom[id];
+        setConfig({...config, providers: {...config.providers, custom: newCustom}});
+    };
+
+    const currentProvider = providers[selectedId];
+
     return (
         <div className="space-y-6">
             <Card>
@@ -306,34 +395,47 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
             </Card>
 
             <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle>自定义供应商 (Custom Providers)</CardTitle>
+                    <div className="flex items-center gap-2">
+                         {providerIds.length > 0 && (
+                             <Select value={selectedId} onValueChange={setSelectedId}>
+                                <SelectTrigger className="w-[180px]">
+                                    <SelectValue placeholder="选择供应商" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {providerIds.map(id => (
+                                        <SelectItem key={id} value={id}>{id}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                             </Select>
+                         )}
+                         <Button variant="outline" size="icon" onClick={handleAddProvider}>
+                            <Plus className="h-4 w-4"/>
+                         </Button>
+                    </div>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                    {Object.entries(config.providers.custom).map(([key, provider]) => (
-                        <div key={key} className="border p-4 rounded relative space-y-2">
-                             <Button variant="ghost" size="icon" className="absolute top-2 right-2" onClick={() => {
-                                const newCustom = {...config.providers.custom};
-                                delete newCustom[key];
-                                setConfig({...config, providers: {...config.providers, custom: newCustom}});
-                            }}>
+                <CardContent className="space-y-4 pt-4">
+                    {currentProvider ? (
+                        <div className="space-y-4 border p-4 rounded relative">
+                            <Button variant="ghost" size="icon" className="absolute top-2 right-2" onClick={() => handleDeleteProvider(selectedId)}>
                                 <Trash2 className="h-4 w-4 text-red-500"/>
                             </Button>
                             <div className="grid gap-2">
                                 <Label>Provider ID</Label>
-                                <Input value={key} disabled />
+                                <Input value={selectedId} disabled />
                             </div>
                             <div className="grid gap-2">
                                 <Label>协议类型 (Protocol)</Label>
                                 <Select 
-                                    value={provider.protocol || "openai"} 
+                                    value={currentProvider.protocol || "openai"} 
                                     onValueChange={(val) => setConfig({
                                         ...config,
                                         providers: {
                                             ...config.providers,
                                             custom: {
                                                 ...config.providers.custom,
-                                                [key]: {...provider, protocol: val}
+                                                [selectedId]: {...currentProvider, protocol: val}
                                             }
                                         }
                                     })}
@@ -350,14 +452,14 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                             <div className="grid gap-2">
                                 <Label>Base URL</Label>
                                 <Input 
-                                    value={provider.base_url}
+                                    value={currentProvider.base_url}
                                     onChange={(e) => setConfig({
                                         ...config,
                                         providers: {
                                             ...config.providers,
                                             custom: {
                                                 ...config.providers.custom,
-                                                [key]: {...provider, base_url: e.target.value}
+                                                [selectedId]: {...currentProvider, base_url: e.target.value}
                                             }
                                         }
                                     })}
@@ -367,38 +469,25 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                                 <Label>API Key</Label>
                                 <Input 
                                     type="password"
-                                    value={provider.api_key}
+                                    value={currentProvider.api_key}
                                     onChange={(e) => setConfig({
                                         ...config,
                                         providers: {
                                             ...config.providers,
                                             custom: {
                                                 ...config.providers.custom,
-                                                [key]: {...provider, api_key: e.target.value}
+                                                [selectedId]: {...currentProvider, api_key: e.target.value}
                                             }
                                         }
                                     })}
                                 />
                             </div>
                         </div>
-                    ))}
-                    <Button variant="outline" onClick={() => {
-                        const id = prompt("输入 Provider ID (如 azure):");
-                        if(id) {
-                            setConfig({
-                                ...config,
-                                providers: {
-                                    ...config.providers,
-                                    custom: {
-                                        ...config.providers.custom,
-                                        [id]: {base_url: "", api_key: "", protocol: "openai"}
-                                    }
-                                }
-                            })
-                        }
-                    }}>
-                        <Plus className="h-4 w-4 mr-1"/> 添加供应商
-                    </Button>
+                    ) : (
+                        <div className="text-center text-muted-foreground py-8">
+                             暂无自定义供应商，请点击右上角 + 号添加。
+                        </div>
+                    )}
                 </CardContent>
             </Card>
         </div>
