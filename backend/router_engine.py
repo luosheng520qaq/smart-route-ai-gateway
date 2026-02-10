@@ -754,6 +754,8 @@ class RouterEngine:
             final_payload["stream"] = False
         else:
             final_payload["stream"] = True
+            # Enable usage reporting for streaming
+            final_payload["stream_options"] = {"include_usage": True}
         
         payload = final_payload
         # -----------------------------
@@ -860,8 +862,8 @@ class RouterEngine:
                              }
                          ],
                          "usage": response_data.get("usage", {
-                             "prompt_tokens": 0,
-                             "completion_tokens": 0,
+                             "prompt_tokens": self._count_messages_tokens(request.messages, model_id),
+                             "completion_tokens": self._count_tokens(content_text, model_id),
                              "total_tokens": 0
                          })
                      }
@@ -1050,6 +1052,11 @@ class RouterEngine:
                             tool_calls_list.append(aggregated_tool_calls[i])
                         message["tool_calls"] = tool_calls_list
                     
+                    # Calculate completion tokens locally if needed
+                    local_completion_tokens = 0
+                    if not usage_info:
+                        local_completion_tokens = self._count_tokens(aggregated_content, model_id)
+
                     final_response = {
                         "id": f"chatcmpl-{int(time.time())}",
                         "object": "chat.completion",
@@ -1063,9 +1070,9 @@ class RouterEngine:
                             }
                         ],
                         "usage": usage_info or {
-                            "prompt_tokens": prompt_tokens,
-                            "completion_tokens": completion_tokens,
-                            "total_tokens": prompt_tokens + completion_tokens
+                            "prompt_tokens": local_prompt_tokens,
+                            "completion_tokens": local_completion_tokens,
+                            "total_tokens": local_prompt_tokens + local_completion_tokens
                         }
                     }
                     
@@ -1073,7 +1080,12 @@ class RouterEngine:
                     full_resp_time = time.time()
                     # Duration from First Token -> Full Return
                     duration_since_ttft = (full_resp_time - ttft_time)*1000
-                    trace_logger.log(trace_id, "FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count, details=f"完整响应接收完毕 | Tokens: {prompt_tokens}+{completion_tokens}")
+                    
+                    final_usage = final_response["usage"]
+                    p_tok = final_usage.get("prompt_tokens", 0)
+                    c_tok = final_usage.get("completion_tokens", 0)
+                    
+                    trace_logger.log(trace_id, "FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count, details=f"完整响应接收完毕 | Tokens: {p_tok}+{c_tok}")
                     if trace_callback:
                         trace_callback("FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
                     
