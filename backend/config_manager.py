@@ -36,35 +36,38 @@ class RouterModelConfig(BaseModel):
     model: str = "gpt-3.5-turbo"
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
-    prompt_template: str = """You are an intent router for an advanced AI Agent system.
-Analyze the user's request history and classify the complexity into one of three levels based on **Reasoning Depth** and **Tool/System Interaction**.
+    prompt_template: str = """You are an intelligent router for an LLM system. Your job is to classify the USER'S INTENT into one of three tiers (T1, T2, T3) to select the most appropriate model.
+    
+**TIER DEFINITIONS:**
 
-**Guidelines:**
-- **Short does NOT mean simple.** A request like "Restart the server" is short but requires high-privilege tool access (T2/T3).
-- **Tool usage rules out T1.** If the user implies ANY action beyond pure conversation (e.g., searching, clicking, file manipulation), it must be T2 or T3.
+**T1 (Speed / Chat / Simple QA)**:
+- Casual conversation, greetings, roleplay.
+- Simple factual questions (e.g., "Who is Newton?", "Translate this").
+- Summary of short text provided in context.
+- **Key:** Low reasoning depth, no external tools needed, safe for smaller/faster models.
 
-**Classification Levels:**
+**T2 (Reasoning / Coding / Tools)**:
+- **Coding:** Writing code, debugging, explaining complex code, SQL queries.
+- **Reasoning:** Logic puzzles, math problems, complex analysis.
+- **Tool Use:** Explicit requests to search the web, check weather, read files.
+- **Creative Writing:** Long stories, detailed emails, nuances.
+- **Key:** Requires capabilities of GPT-4/Claude-3.5-Sonnet level models.
 
-T1 (Passive / Text-Only):
-- Pure conversation, greetings, chit-chat.
-- Factual questions answerable by internal knowledge (e.g., "What is the capital of France?").
-- **Constraint:** NO external tools, NO system operations, NO side effects.
+**T3 (Complex Agentic / Deep Logic)**:
+- **Multi-step Complex Tasks:** "Research topic X, write a report, and save it to a file."
+- **Deep Architecting:** System design, complex project planning.
+- **High Risk:** Sensitive operations requiring maximum intelligence and safety.
+- **Key:** Requires SOTA models (o1, Claude-3-Opus).
 
-T2 (Active / Single-Task):
-- Requests requiring **Standard Tool Usage** (e.g., Web Search, Calculator, Weather).
-- Code generation (Functions, scripts).
-- Simple system operations (e.g., "Open the browser", "Create a folder").
-- Analysis of user-provided files/images.
-
-T3 (Agentic / Complex Flow):
-- **Complex Agent Workflows:** Multi-step executions (e.g., "Go to GitHub, find the repo, clone it, and fix the bug").
-- **Deep System Control:** Automating browser interaction (Selenium/Playwright), OS-level modifications.
-- High-stakes reasoning, architectural design, or handling ambiguous instructions that require planning.
-
-User History:
+**INPUT CONTEXT (User History):**
 {history}
 
-Respond ONLY with the label: "T1", "T2", or "T3"."""
+**INSTRUCTIONS:**
+1. Analyze the *latest* user request in the context of the history.
+2. If the user asks for code, IT IS T2.
+3. If the user asks for search/internet, IT IS T2.
+4. If it's simple chat, IT IS T1.
+5. Respond ONLY with the label: "T1", "T2", or "T3"."""
 
 class HealthCheckConfig(BaseModel):
     decay_rate: float = 0.05 # Recovery points per minute

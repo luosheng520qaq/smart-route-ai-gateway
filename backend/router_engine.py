@@ -7,6 +7,7 @@ import random
 import uuid
 import traceback
 import os
+import re
 try:
     import tiktoken
 except ImportError:
@@ -318,9 +319,17 @@ class RouterEngine:
                 if trace_callback:
                     trace_callback("ROUTER_START", start_t, 0, "success", 0)
 
-                # Get last 3 user messages
+                # Get recent user context (last 3 user messages)
+                # Filter for user messages only as requested to avoid token overflow
                 user_msgs = [m for m in messages if m.get("role") == "user"][-3:]
-                history_text = "\n".join([f"User: {self._extract_text_from_content(m.get('content'))}" for m in user_msgs])
+                history_lines = []
+                for m in user_msgs:
+                    content = self._extract_text_from_content(m.get("content"))
+                    # Truncate very long messages
+                    if len(content) > 800:
+                        content = content[:800] + "...(truncated)"
+                    history_lines.append(f"User: {content}")
+                history_text = "\n".join(history_lines)
                 
                 prompt = config.router.prompt_template.replace("{history}", history_text)
                 
@@ -349,6 +358,12 @@ class RouterEngine:
 
                 if resp.status_code == 200:
                     content = resp.json()["choices"][0]["message"]["content"].strip().upper()
+                    # Use Regex to find standalone T1/T2/T3 to avoid partial matches
+                    match = re.search(r'\bT([1-3])\b', content)
+                    if match: 
+                        return f"t{match.group(1)}"
+                    
+                    # Fallback simple check if regex fails
                     if "T1" in content: return "t1"
                     if "T2" in content: return "t2"
                     if "T3" in content: return "t3"
@@ -369,7 +384,10 @@ class RouterEngine:
         if len(full_text) > 2000:
             return "t3"
         
-        complex_keywords = ["code", "function", "complex", "analysis", "summary", "reasoning"]
+        complex_keywords = [
+            "code", "function", "complex", "analysis", "summary", "reasoning", "generate", "create",
+            "代码", "函数", "分析", "总结", "推理", "生成", "创建", "搜索", "查询"
+        ]
         if any(k in full_text.lower() for k in complex_keywords):
             return "t2"
             
