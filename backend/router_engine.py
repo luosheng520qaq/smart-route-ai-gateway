@@ -781,7 +781,15 @@ class RouterEngine:
                     # 1. Hard Failures (Auth, Client Error) -> Exclude for entire request
                     if "401" in error_msg or "403" in error_msg or "404" in error_msg:
                          excluded_models.add(model_id_entry)
-                    # 2. Soft Failures (503 Service Unavailable, Timeout) -> Exclude for this round only
+                    # 2. Rate Limit (429) -> Exclude for entire request to avoid spamming
+                    #    If we had multiple API keys for the same model, we could retry, but here we assume 1:1 mapping.
+                    elif "429" in error_msg:
+                         excluded_models.add(model_id_entry)
+                    # 3. Custom Retry Logic (Keywords/Status Codes) -> Exclude for this round only (Soft Failure)
+                    #    If it matched a retry condition, we should retry it in next round (or other models).
+                    elif "Error Keyword Match" in error_msg or "Status Code Error" in error_msg:
+                         round_failed_models.add(model_id_entry)
+                    # 4. Other Soft Failures (503 Service Unavailable, Timeout) -> Exclude for this round only
                     #    (This allows retrying in next round if max_rounds > 1)
                     elif "503" in error_msg or "Timeout" in error_msg:
                          round_failed_models.add(model_id_entry)
