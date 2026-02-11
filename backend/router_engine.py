@@ -695,10 +695,11 @@ class RouterEngine:
         trace_logger.log(trace_id, "ALL_FAILED", time.time(), duration, "fail", retry_count, details=f"所有 {len(models)} 个模型尝试均失败")
         add_trace_event("ALL_FAILED", time.time(), duration, "fail", retry_count)
         
-        background_tasks.add_task(
-            self._log_request,
+        # Await logging directly to ensure it's recorded before raising exception
+        await self._log_request(
             level, "all", duration, "error", user_prompt, request.model_dump_json(), str(last_error), trace_events, last_stack_trace, retry_count
         )
+        
         trace_logger.log_separator("=")
         raise HTTPException(status_code=502, detail=f"All models failed. Last error: {str(last_error)}")
 
