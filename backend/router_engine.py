@@ -295,6 +295,108 @@ class RouterEngine:
             return "".join(text_parts)
         return str(content)
 
+    def _convert_to_anthropic_messages(self, openai_messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Convert OpenAI message format to Anthropic format.
+        Returns a dict with 'system' (str) and 'messages' (list).
+        """
+        anthropic_messages = []
+        system_prompt = None
+        
+        # Buffer for consecutive tool outputs to merge into one User message
+        tool_results_buffer = []
+        
+        def flush_tool_buffer():
+            nonlocal tool_results_buffer
+            if tool_results_buffer:
+                anthropic_messages.append({
+                    "role": "user",
+                    "content": tool_results_buffer
+                })
+                tool_results_buffer = []
+
+        for msg in openai_messages:
+            role = msg.get("role")
+            content = msg.get("content")
+            
+            if role == "system":
+                # Extract system prompt
+                # Anthropic supports only one system prompt usually, or we join them?
+                # Using the last one or joining is common practice. Let's join if multiple.
+                text_content = self._extract_text_from_content(content)
+                if system_prompt:
+                    system_prompt += "\n" + text_content
+                else:
+                    system_prompt = text_content
+                continue
+            
+            # If we encounter a non-tool message, flush any pending tool results
+            if role != "tool":
+                flush_tool_buffer()
+
+            if role == "user":
+                # Pass through, but ensure content is string or valid list
+                # OpenAI allows string or array (for vision). Anthropic allows similar.
+                # Ideally we should normalize, but passing through is often safe if it's text.
+                anthropic_messages.append({
+                    "role": "user",
+                    "content": content
+                })
+            
+            elif role == "assistant":
+                # Handle tool_calls conversion
+                tool_calls = msg.get("tool_calls")
+                new_content = []
+                
+                # 1. Text Content
+                if content:
+                    new_content.append({
+                        "type": "text",
+                        "text": content
+                    })
+                
+                # 2. Tool Uses
+                if tool_calls:
+                    for tc in tool_calls:
+                        func = tc.get("function", {})
+                        args_str = func.get("arguments", "{}")
+                        try:
+                            args = json.loads(args_str)
+                        except:
+                            args = {}
+                            
+                        new_content.append({
+                            "type": "tool_use",
+                            "id": tc.get("id"),
+                            "name": func.get("name"),
+                            "input": args
+                        })
+                
+                anthropic_messages.append({
+                    "role": "assistant",
+                    "content": new_content
+                })
+            
+            elif role == "tool":
+                # Convert to tool_result block and buffer it
+                tool_result = {
+                    "type": "tool_result",
+                    "tool_use_id": msg.get("tool_call_id"),
+                    "content": self._extract_text_from_content(content)
+                }
+                # Handle error state? OpenAI doesn't explicitly have error in tool msg, 
+                # but sometimes content implies error. Anthropic has is_error field.
+                # For now, keep simple.
+                tool_results_buffer.append(tool_result)
+        
+        # Final flush
+        flush_tool_buffer()
+        
+        return {
+            "system": system_prompt,
+            "messages": anthropic_messages
+        }
+
     async def determine_level(self, messages: List[Dict[str, Any]], trace_callback=None) -> str:
         config = config_manager.get_config()
         
@@ -779,6 +881,37 @@ class RouterEngine:
 
         # Handle v1-messages Protocol (No Stream, Different Endpoint Logic)
         if protocol == "v1-messages":
+             # Perform Message Conversion (OpenAI -> Anthropic)
+             conversion = self._convert_to_anthropic_messages(payload.get("messages", []))
+             payload["messages"] = conversion["messages"]
+             if conversion["system"]:
+                 payload["system"] = conversion["system"]
+             
+             # Also convert tools if present
+             if "tools" in payload:
+                 anthropic_tools = []
+                 for t in payload["tools"]:
+                     if t.get("type") == "function":
+                         func = t.get("function", {})
+                         anthropic_tools.append({
+                             "name": func.get("name"),
+                             "description": func.get("description"),
+                             "input_schema": func.get("parameters")
+                         })
+                 if anthropic_tools:
+                     payload["tools"] = anthropic_tools
+                     # Remove tool_choice if set to auto (default) or handle mapping
+                     # OpenAI: tool_choice="auto" or {"type": "function", ...}
+                     # Anthropic: tool_choice={"type": "auto"} or {"type": "tool", "name": "..."}
+                     if "tool_choice" in payload:
+                         tc = payload["tool_choice"]
+                         if tc == "auto":
+                             payload["tool_choice"] = {"type": "auto"}
+                         elif isinstance(tc, dict) and tc.get("type") == "function":
+                             payload["tool_choice"] = {"type": "tool", "name": tc.get("function", {}).get("name")}
+                         elif tc == "none":
+                             del payload["tool_choice"] # Anthropic doesn't use "none", just omit tools or choice
+             
              base = base_url.rstrip('/')
              url = f"{base}/messages"
              
