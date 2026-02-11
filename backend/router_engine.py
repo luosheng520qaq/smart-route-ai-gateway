@@ -150,6 +150,7 @@ class RouterEngine:
                 "failures": 0, 
                 "success": 0, 
                 "failure_score": 0.0, 
+                "cooldown_until": 0,
                 "last_updated": time.time()
             }
         
@@ -165,8 +166,12 @@ class RouterEngine:
             stats["last_updated"] = time.time()
             
         # Calculate dynamic health score (0-100) for UI
-        fs = stats.get("failure_score", 0.0)
-        stats["health_score"] = int(100.0 / (1.0 + fs * 0.2))
+        # If cooldown is active, show 0 health
+        if stats.get("cooldown_until", 0) > time.time():
+            stats["health_score"] = 0
+        else:
+            fs = stats.get("failure_score", 0.0)
+            stats["health_score"] = int(100.0 / (1.0 + fs * 0.2))
             
         return stats
 
@@ -194,6 +199,7 @@ class RouterEngine:
         self._refresh_stats(model_id) # Apply decay first
         stats = self._get_model_stats(model_id)
         stats["success"] += 1
+        stats["cooldown_until"] = 0 # Clear cooldown on success
         
         # Significant bonus on success: reduce failure score by 2.0
         if stats["failure_score"] > 0:
@@ -202,11 +208,15 @@ class RouterEngine:
         stats["last_updated"] = time.time()
         self._save_stats() # Persist on change (optimize frequency if high traffic)
 
-    def _record_failure(self, model_id: str, penalty: float = 1.0):
+    def _record_failure(self, model_id: str, penalty: float = 1.0, cooldown_seconds: int = 0):
         self._refresh_stats(model_id) # Apply decay first
         stats = self._get_model_stats(model_id)
         stats["failures"] += 1 # Integer counter (always increments)
         stats["failure_score"] += penalty # Dynamic score (decays)
+        
+        if cooldown_seconds > 0:
+            stats["cooldown_until"] = time.time() + cooldown_seconds
+            
         stats["last_updated"] = time.time()
         self._save_stats() # Persist on change
 
@@ -601,6 +611,14 @@ class RouterEngine:
                 # Skip hard failures always, skip soft failures only for this round
                 if model_id_entry in excluded_models or model_id_entry in round_failed_models:
                     continue
+                
+                # Check for active cooldown (Global Health Check)
+                stats = self._get_model_stats(model_id_entry)
+                if stats.get("cooldown_until", 0) > time.time():
+                    logger.info(f"Skipping model {model_id_entry} due to active cooldown (Until {stats['cooldown_until']})")
+                    # If all models are in cooldown, we might run out of models.
+                    # But that's intended behavior: "Cool down" means don't use it.
+                    continue
 
                 try:
                     # Resolve Provider
@@ -724,6 +742,7 @@ class RouterEngine:
                     error_msg = str(e)
                     reason = "Unknown Error"
                     penalty = 1.0 # Default penalty
+                    cooldown = 0 # Default cooldown (seconds)
                     
                     if "TTFT Timeout" in error_msg:
                         reason = "超首token限制时长"
@@ -739,16 +758,19 @@ class RouterEngine:
                              reason += f": {code_part}"
                              # Adjust penalty based on code
                              if "429" in code_part:
-                                 penalty = 0.2 # Rate limit - minor penalty
+                                 penalty = 10.0 # Rate limit - Heavy penalty to avoid selection
+                                 cooldown = 60 # Cooldown for 60s
                              elif "401" in code_part or "403" in code_part:
-                                 penalty = 5.0 # Auth error - heavy penalty
+                                 penalty = 50.0 # Auth error - Very heavy penalty
+                                 cooldown = 300 # Cooldown 5 mins
                              elif code_part.strip().startswith("5"):
                                  penalty = 1.0 # Server error
                     elif "Error Keyword Match" in error_msg:
                          reason = "错误关键词"
                          if ":" in error_msg:
                              reason += f": {error_msg.split(':')[1].strip()}"
-                         penalty = 1.0
+                         penalty = 10.0
+                         cooldown = 60 # Treat custom errors as serious
                     elif "Empty Response" in error_msg:
                         reason = "空返回"
                         penalty = 1.0
@@ -768,8 +790,8 @@ class RouterEngine:
                     trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, details=f"原因: {reason} | 模型: {display_model_name}")
                     add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=display_model_name, reason=reason)
                     
-                    # Record Failure for Adaptive Routing with calculated penalty
-                    self._record_failure(model_id_entry, penalty=penalty)
+                    # Record Failure for Adaptive Routing with calculated penalty and cooldown
+                    self._record_failure(model_id_entry, penalty=penalty, cooldown_seconds=cooldown)
 
                     # Accumulate error history
                     detailed_error = f"[Round {round_idx + 1}|{display_model_name}] {reason}"
