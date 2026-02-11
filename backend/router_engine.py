@@ -21,8 +21,17 @@ from config_manager import config_manager
 from database import AsyncSessionLocal, RequestLog
 from logger import trace_logger
 
-# Configure logging (Removed basicConfig as we use trace_logger now, but keeping logger for compatibility if needed)
-logger = logging.getLogger("router")
+# Configure logging
+# Force simple print-based logger for immediate user feedback since logger config might be swallowing logs
+class PrintLogger:
+    def info(self, msg):
+        print(f"[INFO] {msg}")
+    def warning(self, msg):
+        print(f"[WARN] {msg}")
+    def error(self, msg):
+        print(f"[ERROR] {msg}")
+
+logger = PrintLogger()
 
 class ChatMessage(BaseModel):
     role: str
@@ -487,22 +496,58 @@ class RouterEngine:
                 
                 # Note: self._client has global limits, but we need specific timeout here.
                 # request-level timeout overrides client timeout.
-                # Verify SSL based on router config
-                verify_ssl = getattr(config.router, "verify_ssl", True)
+                # FORCE DISABLE SSL VERIFICATION as requested by user
+                verify_ssl = False
                 
-                resp = await self._client.post(
-                    f"{config.router.base_url.rstrip('/')}/chat/completions",
-                    json={
-                        "model": config.router.model,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": 10,
-                        "temperature": 0.0
-                    },
-                    headers={"Authorization": f"Bearer {config.router.api_key}"},
-                    timeout=5.0,
-                    # Disable verify if configured (e.g. self-signed certs)
-                    verify=verify_ssl
-                )
+                # Handle SSL verification logic manually since httpx.post doesn't support 'verify' arg
+                temp_client = httpx.AsyncClient(verify=False, timeout=30.0)
+                client_to_use = temp_client
+                
+                try:
+                    # Logic to inherit from Upstream if Router config is empty
+                    base_url = config.router.base_url
+                    api_key = config.router.api_key
+
+                    if not base_url:
+                        logger.info("Router Base URL is empty. Inheriting from Upstream Provider.")
+                        base_url = config.providers.upstream.base_url
+                    
+                    if not api_key:
+                        logger.info("Router API Key is empty. Inheriting from Upstream Provider.")
+                        api_key = config.providers.upstream.api_key
+
+                    base_url = base_url.rstrip('/')
+                    # Prevent double path appending - Improved Logic
+                    if base_url.endswith("/chat/completions"):
+                         url = base_url
+                    elif base_url.endswith("/"):
+                         url = f"{base_url}chat/completions"
+                    else:
+                         url = f"{base_url}/chat/completions"
+                        
+                    logger.info(f"Router requesting URL: {url} (SSL Disabled)")
+                    
+                    # Print full debug info for user
+                    masked_key = api_key[:8] + "***" if api_key else "None"
+                    logger.info(f"DEBUG: Router Request -> Model: {config.router.model}, URL: {url}, Auth: {masked_key}")
+                    
+                    resp = await client_to_use.post(
+                        url,
+                        json={
+                            "model": config.router.model,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "max_tokens": 10,
+                            "temperature": 0.0
+                        },
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        timeout=30.0
+                    )
+                    
+                    if resp.status_code != 200:
+                        logger.error(f"DEBUG: Router 404/Error Response Body: {resp.text}")
+                finally:
+                    if temp_client:
+                        await temp_client.aclose()
                     
             # Log Router End
                 end_t = time.time()
@@ -521,31 +566,24 @@ class RouterEngine:
                     if "T1" in content: return "t1"
                     if "T2" in content: return "t2"
                     if "T3" in content: return "t3"
+                    
+                    # If parsing fails
+                    raise Exception(f"Router response parsing failed. Content: {content[:100]}")
+                else:
+                    # Handle non-200 status codes
+                    raise Exception(f"Router API returned status {resp.status_code}: {resp.text[:200]}")
+
             except Exception as e:
-                logger.error(f"Router Model failed: {e}. Falling back to heuristic.")
-                # If Router enabled but failed, fall through to heuristic below
+                logger.error(f"Router Model failed: {e}")
                 if trace_callback:
                      trace_callback("ROUTER_FAIL", time.time(), 0, "fail", 0)
+                # Directly raise exception as requested by user, NO HEURISTIC FALLBACK
+                raise HTTPException(status_code=500, detail=f"Router Model Failed: {str(e)}")
         else:
             # If Router disabled, as requested by user, we default to T1 only.
             # This allows T1 to act as a fault-tolerant/fallback pool.
             logger.info("Router disabled. Defaulting to T1 level for fault tolerance.")
             return "t1"
-
-        # 2. Fallback Heuristic (Only used if Router enabled but failed)
-        full_text = " ".join([self._extract_text_from_content(m.get("content")) for m in messages])
-        
-        if len(full_text) > 2000:
-            return "t3"
-        
-        complex_keywords = [
-            "code", "function", "complex", "analysis", "summary", "reasoning", "generate", "create",
-            "代码", "函数", "分析", "总结", "推理", "生成", "创建", "搜索", "查询"
-        ]
-        if any(k in full_text.lower() for k in complex_keywords):
-            return "t2"
-            
-        return "t1"
 
     async def route_request(self, request: ChatCompletionRequest, background_tasks: BackgroundTasks):
         trace_logger.log_separator("=")
@@ -990,114 +1028,127 @@ class RouterEngine:
              url = f"{base}/messages"
              
              try:
-                 response = await self._client.post(url, json=payload, headers=headers, timeout=timeout_config, verify=verify_ssl)
+                 # Handle SSL verification logic manually since httpx.post doesn't support 'verify' arg
+                
+                # FORCE DISABLE SSL VERIFICATION as requested by user (v1-messages)
+                verify_ssl = False
+                
+                temp_client = httpx.AsyncClient(verify=False, timeout=timeout_config)
+                client_to_use = temp_client
+                    
+                try:
+                    logger.info(f"Upstream Request (v1-messages): {url} (SSL Disabled)")
+                    response = await client_to_use.post(url, json=payload, headers=headers, timeout=timeout_config)
+                finally:
+                    if temp_client:
+                        await temp_client.aclose()
                  
-                 ttft_time = time.time()
-                 duration_ttft = (ttft_time - req_start_time) * 1000
-                 trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count, details=f"完整响应 (No Stream) | 模型: {model_id}")
-                 if trace_callback:
-                     trace_callback("FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count)
+                ttft_time = time.time()
+                duration_ttft = (ttft_time - req_start_time) * 1000
+                trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count, details=f"完整响应 (No Stream) | 模型: {model_id}")
+                if trace_callback:
+                    trace_callback("FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count)
 
-                 if response.status_code != 200:
-                     error_str = response.text
-                     should_retry = False
-                     if response.status_code in config.retries.conditions.status_codes:
-                         should_retry = True
-                     
-                     if not should_retry:
-                         lower_error = error_str.lower()
-                         for k in config.retries.conditions.error_keywords:
-                             if k in lower_error:
-                                 should_retry = True
-                                 break
-                     
-                     if should_retry:
-                         raise Exception(f"Upstream Error (Retryable): {response.status_code} - {error_str}")
-                     else:
-                         raise Exception(f"Upstream Error: {response.status_code} - {error_str}")
+                if response.status_code != 200:
+                    error_str = response.text
+                    should_retry = False
+                    if response.status_code in config.retries.conditions.status_codes:
+                        should_retry = True
+                    
+                    if not should_retry:
+                        lower_error = error_str.lower()
+                        for k in config.retries.conditions.error_keywords:
+                            if k in lower_error:
+                                should_retry = True
+                                break
+                    
+                    if should_retry:
+                        raise Exception(f"Upstream Error (Retryable): {response.status_code} - {error_str}")
+                    else:
+                        raise Exception(f"Upstream Error: {response.status_code} - {error_str}")
 
-                 response_data = response.json()
-                 
-                 # 转换 v1/messages 响应格式为 OpenAI 兼容格式
-                 if "choices" not in response_data and "content" in response_data:
-                     # 提取 content 和 tool_calls
-                     content_raw = response_data.get("content")
-                     content_text = ""
-                     tool_calls = []
-                     
-                     if isinstance(content_raw, str):
-                         content_text = content_raw
-                     elif isinstance(content_raw, list):
-                         for item in content_raw:
-                             if isinstance(item, dict):
-                                 item_type = item.get("type")
-                                 if item_type == "text":
-                                     content_text += item.get("text", "")
-                                 elif item_type == "tool_use":
-                                     # 转换 Anthropic tool_use 到 OpenAI tool_call
-                                     # Anthropic: {"type": "tool_use", "id": "...", "name": "...", "input": {...}}
-                                     # OpenAI: {"id": "...", "type": "function", "function": {"name": "...", "arguments": "..."}}
-                                     tool_call = {
-                                         "id": item.get("id"),
-                                         "type": "function",
-                                         "function": {
-                                             "name": item.get("name"),
-                                             # OpenAI expect arguments as a JSON string, Anthropic provides a dict
-                                             "arguments": json.dumps(item.get("input", {}))
-                                         }
-                                     }
-                                     tool_calls.append(tool_call)
-                     
-                     # 构造 Message 对象
-                     message_obj = {
-                         "role": response_data.get("role", "assistant"),
-                         "content": content_text if content_text else None
-                     }
-                     if tool_calls:
-                         message_obj["tool_calls"] = tool_calls
-                     
-                     # 构造 OpenAI 格式响应
-                     mapped_response = {
-                         "id": response_data.get("id", f"msg_{int(time.time())}"),
-                         "object": "chat.completion",
-                         "created": int(time.time()),
-                         "model": response_data.get("model", model_id),
-                         "choices": [
-                             {
-                                 "index": 0,
-                                 "message": message_obj,
-                                 "finish_reason": response_data.get("stop_reason", "stop")
-                             }
-                         ],
-                         "usage": response_data.get("usage", {
-                             "prompt_tokens": self._count_messages_tokens(request.messages, model_id),
-                             "completion_tokens": self._count_tokens(content_text, model_id),
-                             "total_tokens": 0
-                         })
-                     }
-                     # 确保 usage 中的 key 是 OpenAI 兼容的 (Anthropic 使用 input_tokens/output_tokens)
-                     if "input_tokens" in mapped_response["usage"]:
-                         mapped_response["usage"]["prompt_tokens"] = mapped_response["usage"].pop("input_tokens")
-                     if "output_tokens" in mapped_response["usage"]:
-                         mapped_response["usage"]["completion_tokens"] = mapped_response["usage"].pop("output_tokens")
-                     if "total_tokens" not in mapped_response["usage"]:
-                         mapped_response["usage"]["total_tokens"] = mapped_response["usage"].get("prompt_tokens", 0) + mapped_response["usage"].get("completion_tokens", 0)
-                         
-                     response_data = mapped_response
-                 
-                 full_resp_time = time.time()
-                 duration_since_ttft = (full_resp_time - ttft_time)*1000
-                 
-                 usage = response_data.get("usage", {})
-                 p_tok = usage.get("prompt_tokens", 0)
-                 c_tok = usage.get("completion_tokens", 0)
-                 
-                 trace_logger.log(trace_id, "FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count, details=f"完整响应接收完毕 | Tokens: {p_tok}+{c_tok}")
-                 if trace_callback:
-                     trace_callback("FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
-                 
-                 return response_data
-                 
+                response_data = response.json()
+                
+                # 转换 v1/messages 响应格式为 OpenAI 兼容格式
+                if "choices" not in response_data and "content" in response_data:
+                    # 提取 content 和 tool_calls
+                    content_raw = response_data.get("content")
+                    content_text = ""
+                    tool_calls = []
+                    
+                    if isinstance(content_raw, str):
+                        content_text = content_raw
+                    elif isinstance(content_raw, list):
+                        for item in content_raw:
+                            if isinstance(item, dict):
+                                item_type = item.get("type")
+                                if item_type == "text":
+                                    content_text += item.get("text", "")
+                                elif item_type == "tool_use":
+                                    # 转换 Anthropic tool_use 到 OpenAI tool_call
+                                    # Anthropic: {"type": "tool_use", "id": "...", "name": "...", "input": {...}}
+                                    # OpenAI: {"id": "...", "type": "function", "function": {"name": "...", "arguments": "..."}}
+                                    tool_call = {
+                                        "id": item.get("id"),
+                                        "type": "function",
+                                        "function": {
+                                            "name": item.get("name"),
+                                            # OpenAI expect arguments as a JSON string, Anthropic provides a dict
+                                            "arguments": json.dumps(item.get("input", {}))
+                                        }
+                                    }
+                                    tool_calls.append(tool_call)
+                    
+                    # 构造 Message 对象
+                    message_obj = {
+                        "role": response_data.get("role", "assistant"),
+                        "content": content_text if content_text else None
+                    }
+                    if tool_calls:
+                        message_obj["tool_calls"] = tool_calls
+                    
+                    # 构造 OpenAI 格式响应
+                    mapped_response = {
+                        "id": response_data.get("id", f"msg_{int(time.time())}"),
+                        "object": "chat.completion",
+                        "created": int(time.time()),
+                        "model": response_data.get("model", model_id),
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": message_obj,
+                                "finish_reason": response_data.get("stop_reason", "stop")
+                            }
+                        ],
+                        "usage": response_data.get("usage", {
+                            "prompt_tokens": self._count_messages_tokens(request.messages, model_id),
+                            "completion_tokens": self._count_tokens(content_text, model_id),
+                            "total_tokens": 0
+                        })
+                    }
+                    # 确保 usage 中的 key 是 OpenAI 兼容的 (Anthropic 使用 input_tokens/output_tokens)
+                    if "input_tokens" in mapped_response["usage"]:
+                        mapped_response["usage"]["prompt_tokens"] = mapped_response["usage"].pop("input_tokens")
+                    if "output_tokens" in mapped_response["usage"]:
+                        mapped_response["usage"]["completion_tokens"] = mapped_response["usage"].pop("output_tokens")
+                    if "total_tokens" not in mapped_response["usage"]:
+                        mapped_response["usage"]["total_tokens"] = mapped_response["usage"].get("prompt_tokens", 0) + mapped_response["usage"].get("completion_tokens", 0)
+                        
+                    response_data = mapped_response
+                
+                full_resp_time = time.time()
+                duration_since_ttft = (full_resp_time - ttft_time)*1000
+                
+                usage = response_data.get("usage", {})
+                p_tok = usage.get("prompt_tokens", 0)
+                c_tok = usage.get("completion_tokens", 0)
+                
+                trace_logger.log(trace_id, "FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count, details=f"完整响应接收完毕 | Tokens: {p_tok}+{c_tok}")
+                if trace_callback:
+                    trace_callback("FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
+                
+                return response_data
+                
              except httpx.ReadTimeout:
                 raise Exception("Total Timeout (Read): Read timeout from upstream")
              except httpx.ConnectTimeout:
@@ -1113,17 +1164,28 @@ class RouterEngine:
             temp_client = None
             client_to_use = self._client
             
-            # If we need to disable SSL verification (and default is usually True), we must use a temp client
-            # httpx.AsyncClient.stream() does NOT accept 'verify' keyword, so we must configure it at Client level.
-            if not verify_ssl:
-                # Create a temporary client with verify=False
-                # Inherit global limits if possible, but for temp usage default is fine
-                temp_client = httpx.AsyncClient(verify=False, timeout=timeout_config)
-                client_to_use = temp_client
+            # FORCE DISABLE SSL VERIFICATION as requested by user (stream)
+            verify_ssl = False
+            
+            # Create a temporary client with verify=False
+            # Inherit global limits if possible, but for temp usage default is fine
+            temp_client = httpx.AsyncClient(verify=False, timeout=timeout_config)
+            client_to_use = temp_client
             
             try:
+                base_url_stream = base_url.rstrip('/')
+                # Prevent double path appending
+                if base_url_stream.endswith("/chat/completions"):
+                    url_stream = base_url_stream
+                elif base_url_stream.endswith("/"):
+                    url_stream = f"{base_url_stream}chat/completions"
+                else:
+                    url_stream = f"{base_url_stream}/chat/completions"
+                    
+                logger.info(f"Upstream Request (Stream): {url_stream} (SSL Disabled)")
+                
                 # Do NOT pass verify=... to stream(), as it's not supported in all versions/modes
-                ctx = client_to_use.stream("POST", f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=headers, timeout=timeout_config)
+                ctx = client_to_use.stream("POST", url_stream, json=payload, headers=headers, timeout=timeout_config)
                 
                 try:
                     # Enforce TTFT (Wait for Headers)

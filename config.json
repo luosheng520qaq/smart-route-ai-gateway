@@ -23,6 +23,7 @@
     "model": "gpt-3.5-turbo",
     "base_url": "https://api.openai.com/v1",
     "api_key": "",
+    "verify_ssl": false,
     "prompt_template": "You are an intent classifier. Analyze the user's request history and classify the complexity into one of three levels:\nT1: Simple, factual, chit-chat, or short tasks.\nT2: Moderate complexity, code generation, creative writing, or analysis.\nT3: Complex reasoning, deep coding, architectural design, or math problems.\n\nUser History:\n{history}\n\nRespond ONLY with \"T1\", \"T2\", or \"T3\". Do not add any explanation."
   },
   "retry_config": {

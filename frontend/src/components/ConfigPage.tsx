@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Save, Plus, Trash2, Brain, HeartPulse, ShieldCheck, Settings, Server, Network, History as HistoryIcon, RotateCcw, Database } from 'lucide-react';
-import { AppConfig, fetchConfig, updateConfig, fetchHistory, rollbackConfig, ConfigHistory } from '@/lib/api';
+import { AppConfig, fetchConfig, updateConfig, fetchHistory, rollbackConfig, ConfigHistory, api } from '@/lib/api';
 import { Setup2FA } from './AuthPage';
 import { ChangePassword } from './ChangePassword';
 import { ChangeUsername } from './ChangeUsername';
@@ -391,6 +391,13 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                             onChange={(e) => setConfig({...config, providers: {...config.providers, upstream: {...config.providers.upstream, api_key: e.target.value}}})}
                         />
                     </div>
+                    <div className="flex items-center gap-2">
+                        <Switch 
+                            checked={config.providers.upstream.verify_ssl !== false}
+                            onCheckedChange={(c) => setConfig({...config, providers: {...config.providers, upstream: {...config.providers.upstream, verify_ssl: c}}})}
+                        />
+                        <Label>验证 SSL 证书</Label>
+                    </div>
                 </CardContent>
             </Card>
 
@@ -481,6 +488,22 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                                         }
                                     })}
                                 />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Switch 
+                                    checked={currentProvider.verify_ssl !== false}
+                                    onCheckedChange={(c) => setConfig({
+                                        ...config,
+                                        providers: {
+                                            ...config.providers,
+                                            custom: {
+                                                ...config.providers.custom,
+                                                [selectedId]: {...currentProvider, verify_ssl: c}
+                                            }
+                                        }
+                                    })}
+                                />
+                                <Label>验证 SSL 证书</Label>
                             </div>
                         </div>
                     ) : (
@@ -641,6 +664,30 @@ function ResilienceSettings({ config, setConfig }: { config: AppConfig, setConfi
 }
 
 function RouterSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
+    const [testMessage, setTestMessage] = useState("你好，请帮我写一段Python代码");
+    const [testResult, setTestResult] = useState<any>(null);
+    const [loading, setLoading] = useState(false);
+
+    const handleTest = async () => {
+        setLoading(true);
+        setTestResult(null);
+        try {
+            const res = await api.post("/api/router/test", { message: testMessage });
+            const data = res.data;
+            setTestResult(data);
+            if (data.level) {
+                toast.success(`分类结果: ${data.level.toUpperCase()}`);
+            }
+        } catch (e: any) {
+            console.error(e);
+            const errorMsg = e.response?.data?.detail || String(e);
+            toast.error("请求失败: " + errorMsg);
+            setTestResult({ error: errorMsg });
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <Card>
             <CardHeader><CardTitle>意图路由配置</CardTitle></CardHeader>
@@ -664,6 +711,42 @@ function RouterSettings({ config, setConfig }: { config: AppConfig, setConfig: a
                                 onChange={(e) => setConfig({...config, router: {...config.router, model: e.target.value}})}
                             />
                         </div>
+
+                        <div className="flex items-center justify-between border p-3 rounded-md">
+                            <div className="space-y-0.5">
+                                <Label>验证 SSL 证书 (Verify SSL)</Label>
+                                <p className="text-xs text-muted-foreground">
+                                    如果是自签名证书，请关闭此选项 (不推荐生产环境)
+                                </p>
+                            </div>
+                            <Switch 
+                                checked={config.router.verify_ssl !== false} // Default true
+                                onCheckedChange={(c) => setConfig({...config, router: {...config.router, verify_ssl: c}})}
+                            />
+                        </div>
+
+                        <div className="grid gap-2">
+                            <Label>Router Base URL (Optional)</Label>
+                            <Input 
+                                value={config.router.base_url || ""}
+                                onChange={(e) => setConfig({...config, router: {...config.router, base_url: e.target.value}})}
+                                placeholder={`留空则使用默认: ${config.providers.upstream.base_url || "Upstream URL"}`}
+                            />
+                             <p className="text-xs text-muted-foreground">
+                                仅当路由模型需要独立 API 地址时填写，否则请留空。
+                            </p>
+                        </div>
+
+                        <div className="grid gap-2">
+                            <Label>Router API Key (Optional)</Label>
+                            <Input 
+                                type="password"
+                                value={config.router.api_key || ""}
+                                onChange={(e) => setConfig({...config, router: {...config.router, api_key: e.target.value}})}
+                                placeholder="留空则使用默认 Upstream API Key"
+                            />
+                        </div>
+
                         <div className="grid gap-2">
                             <Label>Prompt 模板</Label>
                             <Textarea 
@@ -671,6 +754,32 @@ function RouterSettings({ config, setConfig }: { config: AppConfig, setConfig: a
                                 value={config.router.prompt_template}
                                 onChange={(e) => setConfig({...config, router: {...config.router, prompt_template: e.target.value}})}
                             />
+                        </div>
+
+                        <div className="border-t pt-4 mt-4">
+                            <Label className="mb-2 block">路由测试</Label>
+                            <div className="flex gap-2">
+                                <Input 
+                                    value={testMessage}
+                                    onChange={(e) => setTestMessage(e.target.value)}
+                                    placeholder="输入测试文本..."
+                                />
+                                <Button onClick={handleTest} disabled={loading}>
+                                    {loading ? "测试中..." : "测试"}
+                                </Button>
+                            </div>
+                            {testResult && (
+                                <div className="mt-2 p-2 bg-muted rounded text-sm font-mono">
+                                    {testResult.error ? (
+                                        <span className="text-red-500">Error: {testResult.error}</span>
+                                    ) : (
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-bold text-primary">Result: {testResult.level}</span>
+                                            <span className="text-muted-foreground text-xs">({new Date().toLocaleTimeString()})</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </>
                 )}

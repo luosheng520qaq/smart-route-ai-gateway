@@ -9,6 +9,7 @@ from sqlalchemy import select, desc, func, and_, or_
 from datetime import datetime, timedelta, timezone
 import csv
 import io
+import logging
 from contextlib import asynccontextmanager
 import json
 import os
@@ -17,6 +18,8 @@ from config_manager import config_manager, AppConfig
 from database import init_db, get_db, RequestLog, AsyncSession, prune_logs
 from router_engine import router_engine, ChatCompletionRequest
 from logger import trace_logger
+
+logger = logging.getLogger("main")
 
 # Security
 security = HTTPBearer(auto_error=False)
@@ -274,6 +277,34 @@ async def change_username(
 
 # --- Management API (Protected by JWT) ---
 
+class RouterTestRequest(BaseModel):
+    message: str
+
+@app.post("/api/router/test", dependencies=[Depends(get_current_active_user)])
+async def test_router(req: RouterTestRequest):
+    """
+    Test the router classification logic with a given message.
+    Returns the determined level (t1/t2/t3) and the raw response if available.
+    """
+    try:
+        # Mock a ChatCompletionRequest with the user's message
+        # We need to create a list of messages as expected by determine_level
+        messages = [{"role": "user", "content": req.message}]
+        
+        # Use determine_level directly
+        # Note: determine_level is async
+        level = await router_engine.determine_level(messages)
+        
+        return {
+            "status": "success",
+            "level": level,
+            "message": req.message
+        }
+    except Exception as e:
+        logger.error(f"Router Test Failed: {e}")
+        # Return error details to help debugging
+        raise HTTPException(status_code=500, detail=f"Router Test Failed: {str(e)}")
+
 @app.get("/api/config", dependencies=[Depends(get_current_active_user)])
 async def get_config():
     return config_manager.get_config()
@@ -329,6 +360,7 @@ async def update_config(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    print(f"[INFO] API Config Update Request. Router URL in Payload: {config.router.base_url}")
     try:
         # Save History
         history = ConfigHistory(
@@ -344,6 +376,7 @@ async def update_config(
         router_engine.cleanup_stats()
         return {"status": "success", "config": config_manager.get_config()}
     except Exception as e:
+        print(f"[ERROR] Config Update Failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/logs", dependencies=[Depends(get_current_active_user)])

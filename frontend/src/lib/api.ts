@@ -30,6 +30,7 @@ export interface RouterConfig {
   base_url: string;
   api_key: string;
   prompt_template: string;
+  verify_ssl?: boolean;
 }
 
 export interface RetryConfig {
@@ -46,6 +47,7 @@ export interface ProviderConfig {
   base_url: string;
   api_key: string;
   protocol?: string;
+  verify_ssl?: boolean;
 }
 
 export interface GeneralConfig {
@@ -74,6 +76,7 @@ export interface RetrySettings {
 export interface UpstreamConfig {
     base_url: string;
     api_key: string;
+    verify_ssl?: boolean;
 }
 
 export interface ProvidersConfig {
@@ -87,6 +90,10 @@ export interface ParameterConfig {
   model_params: Record<string, Record<string, any>>;
 }
 
+export interface SecurityConfig {
+  access_token_expire_minutes?: number;
+}
+
 export interface AppConfig {
   general: GeneralConfig;
   models: ModelsConfig;
@@ -96,6 +103,7 @@ export interface AppConfig {
   router: RouterConfig;
   health: HealthCheckConfig;
   params: ParameterConfig;
+  security?: SecurityConfig;
 }
 
 export interface ConfigHistory {

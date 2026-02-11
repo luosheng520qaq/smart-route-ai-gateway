@@ -252,7 +252,9 @@ class ConfigManager:
         # But wait, update_config in main.py does `config_manager.update_config(config.model_dump())`
         # So it passes the full new config structure.
         
+        print(f"[INFO] Config Update Received. Router URL: {new_config.get('router', {}).get('base_url')}")
         self._config = AppConfig(**new_config)
         self.save_config()
+        print(f"[INFO] Config Saved. Current Memory URL: {self._config.router.base_url}")
 
 config_manager = ConfigManager()

@@ -60,7 +60,8 @@
   "providers": {
     "upstream": {
       "base_url": "https://api.openai.com/v1",
-      "api_key": ""
+      "api_key": "",
+      "verify_ssl": false
     },
     "custom": {},
     "map": {}
@@ -70,6 +71,7 @@
     "model": "gpt-3.5-turbo",
     "base_url": "https://api.openai.com/v1",
     "api_key": "",
+    "verify_ssl": false,
     "prompt_template": "You are an intelligent router for an LLM system. Your job is to classify the USER'S INTENT into one of three tiers (T1, T2, T3) to select the most appropriate model.\n    \n**TIER DEFINITIONS:**\n\n**T1 (Speed / Chat / Simple QA)**:\n- Casual conversation, greetings, roleplay.\n- Simple factual questions (e.g., \"Who is Newton?\", \"Translate this\").\n- Summary of short text provided in context.\n- **Key:** Low reasoning depth, no external tools needed, safe for smaller/faster models.\n\n**T2 (Reasoning / Coding / Tools)**:\n- **Coding:** Writing code, debugging, explaining complex code, SQL queries.\n- **Reasoning:** Logic puzzles, math problems, complex analysis.\n- **Tool Use:** Explicit requests to search the web, check weather, read files.\n- **Creative Writing:** Long stories, detailed emails, nuances.\n- **Key:** Requires capabilities of GPT-4/Claude-3.5-Sonnet level models.\n\n**T3 (Complex Agentic / Deep Logic)**:\n- **Multi-step Complex Tasks:** \"Research topic X, write a report, and save it to a file.\"\n- **Deep Architecting:** System design, complex project planning.\n- **High Risk:** Sensitive operations requiring maximum intelligence and safety.\n- **Key:** Requires SOTA models (o1, Claude-3-Opus).\n\n**INPUT CONTEXT (User History):**\n{history}\n\n**INSTRUCTIONS:**\n1. Analyze the *latest* user request in the context of the history.\n2. If the user asks for code, IT IS T2.\n3. If the user asks for search/internet, IT IS T2.\n4. If it's simple chat, IT IS T1.\n5. Respond ONLY with the label: \"T1\", \"T2\", or \"T3\"."
   },
   "health": {
