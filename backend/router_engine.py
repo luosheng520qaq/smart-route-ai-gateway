@@ -856,7 +856,19 @@ class RouterEngine:
         )
         
         trace_logger.log_separator("=")
-        raise HTTPException(status_code=502, detail=f"All models failed. Last error: {str(last_error)}")
+        # Use 502 Bad Gateway to indicate upstream failure, but ensure it's a FINAL error
+        # The user reported that "Retry 8" failure was followed by a NEW request.
+        # This implies that the CLIENT (AstrBot or other) received an error code that triggered ITS OWN retry logic.
+        # Standard HTTP error handling:
+        # 500/502/503/504 -> Often triggers client retry.
+        # 4xx -> Usually does not trigger client retry (unless 429).
+        
+        # If we have exhausted ALL retries internally, we should return a 502.
+        # But if the client is aggressive, it might retry on 502.
+        # We can't control the client, but we can ensure OUR logic stops here.
+        # The logs show "全部尝试失败" then a NEW "收到请求". This confirms it's a NEW request from client.
+        
+        raise HTTPException(status_code=502, detail=f"All models failed after {retry_count} retries. Last error: {str(last_error)}")
 
     async def _call_upstream(self, request: ChatCompletionRequest, model_id: str, base_url: str, api_key: str, timeout_ms: int, stream_timeout_ms: int, trace_id: str, retry_count: int, req_start_time: float, trace_callback=None, protocol: str = "openai") -> Dict[str, Any]:
         headers = {
