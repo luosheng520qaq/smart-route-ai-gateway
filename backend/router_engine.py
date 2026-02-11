@@ -496,26 +496,35 @@ class RouterEngine:
                 
                 # Note: self._client has global limits, but we need specific timeout here.
                 # request-level timeout overrides client timeout.
-                # FORCE DISABLE SSL VERIFICATION as requested by user
-                verify_ssl = False
+                # FORCE DISABLE SSL VERIFICATION as requested by user -> NOW CONFIGURABLE
+                # verify_ssl = False (OLD)
                 
+                # Logic to inherit from Upstream if Router config is empty
+                base_url = config.router.base_url
+                api_key = config.router.api_key
+                should_verify_ssl = config.router.verify_ssl # Default True in config
+
+                if not base_url:
+                    logger.info("Router Base URL is empty. Inheriting from Upstream Provider.")
+                    base_url = config.providers.upstream.base_url
+                    # Inherit SSL setting if inheriting URL
+                    # Note: config.providers.upstream.verify_ssl might be None/False/True. 
+                    # Pydantic defaults verify_ssl=True if not set in UpstreamConfig, 
+                    # but let's check explicit attribute to be safe.
+                    should_verify_ssl = getattr(config.providers.upstream, "verify_ssl", True)
+                
+                if not api_key:
+                    logger.info("Router API Key is empty. Inheriting from Upstream Provider.")
+                    api_key = config.providers.upstream.api_key
+
                 # Handle SSL verification logic manually since httpx.post doesn't support 'verify' arg
-                temp_client = httpx.AsyncClient(verify=False, timeout=30.0)
+                # Wait, httpx.AsyncClient supports verify. httpx.post is a shortcut.
+                # We are using client_to_use.post where client_to_use is an instance.
+                
+                temp_client = httpx.AsyncClient(verify=should_verify_ssl, timeout=30.0)
                 client_to_use = temp_client
                 
                 try:
-                    # Logic to inherit from Upstream if Router config is empty
-                    base_url = config.router.base_url
-                    api_key = config.router.api_key
-
-                    if not base_url:
-                        logger.info("Router Base URL is empty. Inheriting from Upstream Provider.")
-                        base_url = config.providers.upstream.base_url
-                    
-                    if not api_key:
-                        logger.info("Router API Key is empty. Inheriting from Upstream Provider.")
-                        api_key = config.providers.upstream.api_key
-
                     base_url = base_url.rstrip('/')
                     # Prevent double path appending - Improved Logic
                     if base_url.endswith("/chat/completions"):
@@ -525,7 +534,7 @@ class RouterEngine:
                     else:
                          url = f"{base_url}/chat/completions"
                         
-                    logger.info(f"Router requesting URL: {url} (SSL Disabled)")
+                    logger.info(f"Router requesting URL: {url} (SSL Verify: {should_verify_ssl})")
                     
                     # Print full debug info for user
                     masked_key = api_key[:8] + "***" if api_key else "None"

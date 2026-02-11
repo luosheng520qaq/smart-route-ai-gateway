@@ -513,6 +513,60 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                     )}
                 </CardContent>
             </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle>模型-供应商 映射 (Model Provider Map)</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                        将特定模型名称映射到指定的自定义供应商 (ID)。未映射的模型将使用默认上游。
+                    </p>
+                    <div className="space-y-2">
+                         {Object.entries(config.providers.map || {}).map(([model, providerId]) => (
+                             <div key={model} className="flex items-center gap-2 border p-2 rounded">
+                                 <div className="flex-1 font-mono text-sm">{model}</div>
+                                 <div className="text-muted-foreground">→</div>
+                                 <div className="flex-1 font-mono text-sm">{providerId as string}</div>
+                                 <Button variant="ghost" size="icon" onClick={() => {
+                                     const newMap = {...config.providers.map};
+                                     delete newMap[model];
+                                     setConfig({...config, providers: {...config.providers, map: newMap}});
+                                 }}>
+                                     <Trash2 className="h-4 w-4 text-red-500"/>
+                                 </Button>
+                             </div>
+                         ))}
+                         <div className="flex items-center gap-2 pt-2">
+                             <Button variant="outline" className="w-full" onClick={() => {
+                                 const model = prompt("输入模型名称 (如 gpt-4-turbo):");
+                                 if (!model) return;
+                                 
+                                 const pid = prompt("输入 Provider ID (如 azure):");
+                                 if (!pid) return;
+                                 
+                                 // Verify provider exists (optional but good UX)
+                                 if (pid !== "upstream" && !config.providers.custom[pid]) {
+                                     if(!confirm(`Provider ID '${pid}' 不存在。确定要添加吗？`)) return;
+                                 }
+
+                                 setConfig({
+                                     ...config,
+                                     providers: {
+                                         ...config.providers,
+                                         map: {
+                                             ...config.providers.map,
+                                             [model]: pid
+                                         }
+                                     }
+                                 });
+                             }}>
+                                 <Plus className="h-4 w-4 mr-2"/> 添加映射
+                             </Button>
+                         </div>
+                    </div>
+                </CardContent>
+            </Card>
         </div>
     )
 }
@@ -745,6 +799,14 @@ function RouterSettings({ config, setConfig }: { config: AppConfig, setConfig: a
                                 onChange={(e) => setConfig({...config, router: {...config.router, api_key: e.target.value}})}
                                 placeholder="留空则使用默认 Upstream API Key"
                             />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <Switch 
+                                checked={config.router.verify_ssl !== false}
+                                onCheckedChange={(c) => setConfig({...config, router: {...config.router, verify_ssl: c}})}
+                            />
+                            <Label>验证 SSL 证书 (Router)</Label>
                         </div>
 
                         <div className="grid gap-2">
