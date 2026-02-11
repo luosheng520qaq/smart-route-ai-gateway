@@ -820,6 +820,8 @@ class RouterEngine:
                     logger.error(f"Model {display_model_name} failed (Round {round_idx + 1}): {e}")
                     last_error = e
                     last_stack_trace = traceback.format_exc()
+                    
+                    # Increment retry count ONLY after full processing of failure
                     retry_count += 1
                     continue
                 
