@@ -319,10 +319,36 @@ class RouterEngine:
         def flush_tool_buffer():
             nonlocal tool_results_buffer
             if tool_results_buffer:
-                anthropic_messages.append({
-                    "role": "user",
-                    "content": tool_results_buffer
-                })
+                # Anthropic expects tool results to be USER messages
+                # But we should verify if the LAST message was a User message to merge?
+                # No, Anthropic documentation says:
+                # "Tool result messages should be alternating with Assistant messages"
+                # Actually, in the Messages API:
+                # User (with tool_result content) -> Assistant -> User...
+                # So if we have multiple tool results, they should be in ONE User message block.
+                # However, if the previous message was ALSO a User message (text), 
+                # we might need to merge them if Anthropic doesn't allow consecutive User messages.
+                # BUT: The standard flow is User -> Assistant(ToolUse) -> User(ToolResult).
+                # So the previous message MUST be Assistant.
+                # If we have consecutive Tool Results (parallel tools), they go into ONE User msg.
+                
+                # Check if the last message in anthropic_messages is a User message
+                if anthropic_messages and anthropic_messages[-1]["role"] == "user":
+                    # Merge into existing user message
+                    current_content = anthropic_messages[-1]["content"]
+                    if isinstance(current_content, list):
+                        current_content.extend(tool_results_buffer)
+                    elif isinstance(current_content, str):
+                        # Convert string content to list structure
+                        new_content = [{"type": "text", "text": current_content}]
+                        new_content.extend(tool_results_buffer)
+                        anthropic_messages[-1]["content"] = new_content
+                else:
+                    # Create new user message
+                    anthropic_messages.append({
+                        "role": "user",
+                        "content": tool_results_buffer
+                    })
                 tool_results_buffer = []
 
         for msg in openai_messages:
@@ -345,13 +371,24 @@ class RouterEngine:
                 flush_tool_buffer()
 
             if role == "user":
-                # Pass through, but ensure content is string or valid list
-                # OpenAI allows string or array (for vision). Anthropic allows similar.
-                # Ideally we should normalize, but passing through is often safe if it's text.
-                anthropic_messages.append({
-                    "role": "user",
-                    "content": content
-                })
+                # Check if previous message was also user, if so merge (Anthropic doesn't like consecutive User messages)
+                if anthropic_messages and anthropic_messages[-1]["role"] == "user":
+                     # Merge text content
+                     prev_content = anthropic_messages[-1]["content"]
+                     new_text = self._extract_text_from_content(content)
+                     
+                     if isinstance(prev_content, str):
+                         anthropic_messages[-1]["content"] = prev_content + "\n" + new_text
+                     elif isinstance(prev_content, list):
+                         prev_content.append({
+                             "type": "text",
+                             "text": new_text
+                         })
+                else:
+                    anthropic_messages.append({
+                        "role": "user",
+                        "content": content
+                    })
             
             elif role == "assistant":
                 # Handle tool_calls conversion
@@ -564,29 +601,12 @@ class RouterEngine:
         sorted_models = self._get_sorted_models(models, strategy)
         
         # Apply Strategy-specific Retry Logic
-        if strategy == "sequential":
-             # Sequential: use max_rounds (full list loops) from config
-             pass
-        else:
-             # Adaptive/Random: use max_rounds as total attempt count
-             # We reuse 'max_rounds' config value as the limit for model switching
-             retry_limit = max_rounds
-             if retry_limit < 1: retry_limit = 1
-             
-             # Force max_rounds to 1 because we handle the count by slicing/extending the list
-             max_rounds = 1
-             
-             current_len = len(sorted_models)
-             if current_len > 0:
-                 if current_len < retry_limit:
-                     # Extend list if rounds > models (Cycle through models)
-                     # multiplier = ceil(retry_limit / current_len)
-                     multiplier = (retry_limit + current_len - 1) // current_len
-                     sorted_models = (sorted_models * multiplier)[:retry_limit]
-                 elif current_len > retry_limit:
-                     # Truncate if we have more models than requested rounds
-                     sorted_models = sorted_models[:retry_limit]
-
+        # Previous logic attempted to flatten retries into a single list for adaptive/random strategies.
+        # However, this caused issues with retry counting and log continuity (User Feedback).
+        # We now stick to the standard max_rounds loop for all strategies.
+        # This means max_rounds controls how many times we cycle through the ENTIRE model list.
+        # For adaptive/random, the order is determined once per request (above).
+        
         # Log if strategy reordered them
         if strategy != "sequential" and sorted_models != models:
              logger.info(f"Models reordered by strategy '{strategy}' for level {level}: {sorted_models}")
