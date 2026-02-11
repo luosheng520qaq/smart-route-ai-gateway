@@ -31,32 +31,35 @@ export function TerminalPage() {
       lineHeight: 1.5,
       fontFamily: 'JetBrains Mono, Menlo, Monaco, "Courier New", monospace',
       theme: {
-        background: '#18181b', // zinc-900 (Softer than black)
-        foreground: '#f4f4f5', // zinc-100
-        selectionBackground: '#3f3f46', // zinc-700
-        cursor: '#a1a1aa', // zinc-400
+        background: '#1e293b', // Slate-800 (Blue-ish dark, not pure black)
+        foreground: '#e2e8f0', // Slate-200
+        selectionBackground: '#475569', // Slate-600
+        cursor: '#94a3b8', // Slate-400
         
-        // ANSI Colors (VS Code Dark-ish)
-        black: '#000000',
-        red: '#cd3131',
-        green: '#0dbc79',
-        yellow: '#e5e510',
-        blue: '#2472c8',
-        magenta: '#bc3fbc',
-        cyan: '#11a8cd',
-        white: '#e5e5e5',
-        brightBlack: '#666666',
-        brightRed: '#f14c4c',
-        brightGreen: '#23d18b',
-        brightYellow: '#f5f543',
-        brightBlue: '#3b8eea',
-        brightMagenta: '#d670d6',
-        brightCyan: '#29b8db',
-        brightWhite: '#e5e5e5',
+        // ANSI Colors (One Dark / Dracula inspired)
+        black: '#1e293b',
+        red: '#ff5c57',
+        green: '#5af78e',
+        yellow: '#f3f99d',
+        blue: '#57c7ff',
+        magenta: '#ff6ac1',
+        cyan: '#9aedfe',
+        white: '#f1f5f9',
+        brightBlack: '#686868',
+        brightRed: '#ff5c57',
+        brightGreen: '#5af78e',
+        brightYellow: '#f3f99d',
+        brightBlue: '#57c7ff',
+        brightMagenta: '#ff6ac1',
+        brightCyan: '#9aedfe',
+        brightWhite: '#f8fafc',
       },
       convertEol: true,
       disableStdin: true, // Read-only
       scrollback: 10000,
+      allowProposedApi: true,
+      // Allow selection
+      rightClickSelectsWord: true,
     });
     
     const fitAddon = new FitAddon();
@@ -200,7 +203,7 @@ export function TerminalPage() {
 
   return (
     <div className="h-[calc(100vh-6rem)] animate-in fade-in duration-500">
-      <Card className="h-full flex flex-col shadow-sm border-zinc-200 dark:border-zinc-800">
+      <Card className="h-full flex flex-col shadow-sm border-zinc-200 dark:border-zinc-800 hover:!translate-y-0 hover:!shadow-sm transition-none">
         <CardHeader className="flex flex-row items-center justify-between py-3 px-4 space-y-0 border-b">
           <div className="flex items-center gap-3">
              <div className="p-2 bg-primary/10 rounded-lg">
@@ -272,7 +275,7 @@ export function TerminalPage() {
           </div>
         </CardHeader>
         
-        <CardContent className="flex-1 p-0 relative min-h-0 bg-[#09090b]">
+        <CardContent className="flex-1 p-0 relative min-h-0 bg-[#1e293b] select-text">
            <div ref={terminalRef} className="absolute inset-0 p-4 overflow-hidden" />
         </CardContent>
       </Card>
