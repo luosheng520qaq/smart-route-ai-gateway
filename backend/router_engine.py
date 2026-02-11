@@ -1108,204 +1108,222 @@ class RouterEngine:
         try:
             # Manually manage the stream context to decouple TTFT timeout from Body timeout
             # Use global client with specific request timeout
-            # Pass verify_ssl to handle self-signed certificates if configured
-            ctx = self._client.stream("POST", f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=headers, timeout=timeout_config, verify=verify_ssl)
+            
+            # Determine which client to use based on verify_ssl requirement
+            temp_client = None
+            client_to_use = self._client
+            
+            # If we need to disable SSL verification (and default is usually True), we must use a temp client
+            # httpx.AsyncClient.stream() does NOT accept 'verify' keyword, so we must configure it at Client level.
+            if not verify_ssl:
+                # Create a temporary client with verify=False
+                # Inherit global limits if possible, but for temp usage default is fine
+                temp_client = httpx.AsyncClient(verify=False, timeout=timeout_config)
+                client_to_use = temp_client
             
             try:
-                # Enforce TTFT (Wait for Headers)
-                # Note: httpx connect timeout will trigger first/simultaneously if connection fails
-                response = await asyncio.wait_for(ctx.__aenter__(), timeout=timeout_sec)
-            except asyncio.TimeoutError:
-                raise Exception(f"TTFT Timeout (Headers) > {timeout_sec}s")
-            except Exception:
-                raise
-            
-            # 3. Log: First Token (Headers Received)
-            ttft_time = time.time()
-            # Duration from "Request Received" (or "Retry Start"?) Prompt says: "Retry/FirstCall -> First Token"
-            # So we need time of THIS call start? Yes, req_start_time passed in is actually call_start_time now.
-            duration_ttft = (ttft_time - req_start_time) * 1000
-            
-            trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count, details=f"首字响应 | 模型: {model_id}")
-            if trace_callback:
-                trace_callback("FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count) 
+                # Do NOT pass verify=... to stream(), as it's not supported in all versions/modes
+                ctx = client_to_use.stream("POST", f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=headers, timeout=timeout_config)
+                
+                try:
+                    # Enforce TTFT (Wait for Headers)
+                    # Note: httpx connect timeout will trigger first/simultaneously if connection fails
+                    response = await asyncio.wait_for(ctx.__aenter__(), timeout=timeout_sec)
+                except asyncio.TimeoutError:
+                    raise Exception(f"TTFT Timeout (Headers) > {timeout_sec}s")
+                except Exception:
+                    raise
+                
+                # 3. Log: First Token (Headers Received)
+                ttft_time = time.time()
+                # Duration from "Request Received" (or "Retry Start"?) Prompt says: "Retry/FirstCall -> First Token"
+                # So we need time of THIS call start? Yes, req_start_time passed in is actually call_start_time now.
+                duration_ttft = (ttft_time - req_start_time) * 1000
+                
+                trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count, details=f"首字响应 | 模型: {model_id}")
+                if trace_callback:
+                    trace_callback("FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count) 
 
-            try:
-                    # 1. Check Status Code Failover
-                    if response.status_code != 200:
-                        try:
-                            error_text = await asyncio.wait_for(response.aread(), timeout=10.0)
-                        except asyncio.TimeoutError:
-                            error_text = b"Error body read timed out"
-                            
-                        error_str = error_text.decode(errors='replace')
-                        
-                        should_retry = False
-                        if response.status_code in config.retries.conditions.status_codes:
-                            should_retry = True
-                        
-                        # 2. Check Error Keyword Failover
-                        keyword_match = None
-                        if not should_retry:
-                            lower_error = error_str.lower()
-                            for k in config.retries.conditions.error_keywords:
-                                if k in lower_error:
-                                    should_retry = True
-                                    keyword_match = k
-                                    break
-                        
-                        if should_retry:
-                            if keyword_match:
-                                raise Exception(f"Error Keyword Match: {keyword_match} in {error_str}")
-                            else:
-                                raise Exception(f"Status Code Error: {response.status_code} - {error_str}")
-                        else:
-                            raise Exception(f"Upstream Error: {response.status_code} - {error_str}")
-
-                    # Aggregate Stream
-                    aggregated_content = ""
-                    aggregated_tool_calls = {} # index -> tool_call
-                    finish_reason = None
-                    role = "assistant"
-                    usage_info = None # Capture usage from stream options if available
-                    prompt_tokens = 0
-                    completion_tokens = 0
-                    
-                    # Pre-calculate prompt tokens locally just in case
-                    # Use full messages list for accuracy, fallback to empty list
-                    req_messages = payload.get("messages", [])
-                    local_prompt_tokens = self._count_messages_tokens(req_messages, model_id)
-                    
-                    # Fix for Kimi/Moonshot & httpx compatibility issues:
-                    # Manually handle buffer and decoding instead of relying on aiter_lines()
-                    buffer = ""
-                    async for chunk in response.aiter_bytes():
-                        try:
-                            text_chunk = chunk.decode("utf-8")
-                        except UnicodeDecodeError:
-                            # Handle potential split multi-byte characters if needed, 
-                            # but for now assume clean chunks or use 'ignore/replace' if critical.
-                            # For robustness, we could use an incremental decoder, but let's try simple first.
-                            text_chunk = chunk.decode("utf-8", errors="replace")
-                            
-                        buffer += text_chunk
-                        
-                        while "\n" in buffer:
-                            line, buffer = buffer.split("\n", 1)
-                            line = line.strip()
-                            
-                            if not line:
-                                continue
+                try:
+                        # 1. Check Status Code Failover
+                        if response.status_code != 200:
+                            try:
+                                error_text = await asyncio.wait_for(response.aread(), timeout=10.0)
+                            except asyncio.TimeoutError:
+                                error_text = b"Error body read timed out"
                                 
-                            if line.startswith("data: "):
-                                data_str = line[6:]
-                                if data_str == "[DONE]":
-                                    continue # Don't break yet, process rest of buffer
-                                try:
-                                    chunk_json = json.loads(data_str)
-                                    # Always check for usage field first, regardless of choices
-                                    if "usage" in chunk_json:
-                                        usage_info = chunk_json["usage"]
+                            error_str = error_text.decode(errors='replace')
+                            
+                            should_retry = False
+                            if response.status_code in config.retries.conditions.status_codes:
+                                should_retry = True
+                            
+                            # 2. Check Error Keyword Failover
+                            keyword_match = None
+                            if not should_retry:
+                                lower_error = error_str.lower()
+                                for k in config.retries.conditions.error_keywords:
+                                    if k in lower_error:
+                                        should_retry = True
+                                        keyword_match = k
+                                        break
+                            
+                            if should_retry:
+                                if keyword_match:
+                                    raise Exception(f"Error Keyword Match: {keyword_match} in {error_str}")
+                                else:
+                                    raise Exception(f"Status Code Error: {response.status_code} - {error_str}")
+                            else:
+                                raise Exception(f"Upstream Error: {response.status_code} - {error_str}")
 
-                                    choices = chunk_json.get("choices", [])
-                                    if not choices:
-                                        continue
-                                        
-                                    delta = choices[0].get("delta", {})
-                                    finish_reason = choices[0].get("finish_reason", finish_reason)
-                                    
-                                    # Aggregate Content
-                                    if "content" in delta and delta["content"] is not None:
-                                        aggregated_content += delta["content"]
-                                        
-                                    # Aggregate Tool Calls
-                                    if "tool_calls" in delta and delta["tool_calls"]:
-                                        for tc in delta["tool_calls"]:
-                                            index = tc.get("index")
-                                            if index not in aggregated_tool_calls:
-                                                aggregated_tool_calls[index] = {
-                                                    "id": tc.get("id", ""),
-                                                    "type": tc.get("type", "function"),
-                                                    "function": {"name": "", "arguments": ""}
-                                                }
-                                            
-                                            if tc.get("id"):
-                                                aggregated_tool_calls[index]["id"] = tc["id"]
-                                            
-                                            if "function" in tc:
-                                                if tc["function"].get("name"):
-                                                    aggregated_tool_calls[index]["function"]["name"] += tc["function"]["name"]
-                                                if tc["function"].get("arguments"):
-                                                    aggregated_tool_calls[index]["function"]["arguments"] += tc["function"]["arguments"]
-
-                                except json.JSONDecodeError:
+                        # Aggregate Stream
+                        aggregated_content = ""
+                        aggregated_tool_calls = {} # index -> tool_call
+                        finish_reason = None
+                        role = "assistant"
+                        usage_info = None # Capture usage from stream options if available
+                        prompt_tokens = 0
+                        completion_tokens = 0
+                        
+                        # Pre-calculate prompt tokens locally just in case
+                        # Use full messages list for accuracy, fallback to empty list
+                        req_messages = payload.get("messages", [])
+                        local_prompt_tokens = self._count_messages_tokens(req_messages, model_id)
+                        
+                        # Fix for Kimi/Moonshot & httpx compatibility issues:
+                        # Manually handle buffer and decoding instead of relying on aiter_lines()
+                        buffer = ""
+                        async for chunk in response.aiter_bytes():
+                            try:
+                                text_chunk = chunk.decode("utf-8")
+                            except UnicodeDecodeError:
+                                # Handle potential split multi-byte characters if needed, 
+                                # but for now assume clean chunks or use 'ignore/replace' if critical.
+                                # For robustness, we could use an incremental decoder, but let's try simple first.
+                                text_chunk = chunk.decode("utf-8", errors="replace")
+                                
+                            buffer += text_chunk
+                            
+                            while "\n" in buffer:
+                                line, buffer = buffer.split("\n", 1)
+                                line = line.strip()
+                                
+                                if not line:
                                     continue
+                                    
+                                if line.startswith("data: "):
+                                    data_str = line[6:]
+                                    if data_str == "[DONE]":
+                                        continue # Don't break yet, process rest of buffer
+                                    try:
+                                        chunk_json = json.loads(data_str)
+                                        # Always check for usage field first, regardless of choices
+                                        if "usage" in chunk_json:
+                                            usage_info = chunk_json["usage"]
 
-                    # Check for empty content (Retry trigger)
-                    if not aggregated_content and not aggregated_tool_calls:
-                        if config.retries.conditions.retry_on_empty:
-                            raise Exception("Empty Response: Upstream returned empty content and no tool calls")
-                        else:
-                            # If retry disabled, just return empty response (or handle gracefully)
-                            pass # Continue to construct response
+                                        choices = chunk_json.get("choices", [])
+                                        if not choices:
+                                            continue
+                                            
+                                        delta = choices[0].get("delta", {})
+                                        finish_reason = choices[0].get("finish_reason", finish_reason)
+                                        
+                                        # Aggregate Content
+                                        if "content" in delta and delta["content"] is not None:
+                                            aggregated_content += delta["content"]
+                                            
+                                        # Aggregate Tool Calls
+                                        if "tool_calls" in delta and delta["tool_calls"]:
+                                            for tc in delta["tool_calls"]:
+                                                index = tc.get("index")
+                                                if index not in aggregated_tool_calls:
+                                                    aggregated_tool_calls[index] = {
+                                                        "id": tc.get("id", ""),
+                                                        "type": tc.get("type", "function"),
+                                                        "function": {"name": "", "arguments": ""}
+                                                    }
+                                                
+                                                if tc.get("id"):
+                                                    aggregated_tool_calls[index]["id"] = tc["id"]
+                                                
+                                                if "function" in tc:
+                                                    if tc["function"].get("name"):
+                                                        aggregated_tool_calls[index]["function"]["name"] += tc["function"]["name"]
+                                                    if tc["function"].get("arguments"):
+                                                        aggregated_tool_calls[index]["function"]["arguments"] += tc["function"]["arguments"]
 
-                    # Construct final response
-                    message = {
-                        "role": role,
-                        "content": aggregated_content if aggregated_content else None
-                    }
-                    
-                    if aggregated_tool_calls:
-                        tool_calls_list = []
-                        for i in sorted(aggregated_tool_calls.keys()):
-                            tool_calls_list.append(aggregated_tool_calls[i])
-                        message["tool_calls"] = tool_calls_list
-                    
-                    # Calculate completion tokens locally if needed
-                    local_completion_tokens = 0
-                    if not usage_info:
-                        local_completion_tokens = self._count_tokens(aggregated_content, model_id)
+                                    except json.JSONDecodeError:
+                                        continue
 
-                    final_response = {
-                        "id": f"chatcmpl-{int(time.time())}",
-                        "object": "chat.completion",
-                        "created": int(time.time()),
-                        "model": model_id,
-                        "choices": [
-                            {
-                                "index": 0,
-                                "message": message,
-                                "finish_reason": finish_reason or "stop"
-                            }
-                        ],
-                        "usage": usage_info or {
-                            "prompt_tokens": local_prompt_tokens,
-                            "completion_tokens": local_completion_tokens,
-                            "total_tokens": local_prompt_tokens + local_completion_tokens
+                        # Check for empty content (Retry trigger)
+                        if not aggregated_content and not aggregated_tool_calls:
+                            if config.retries.conditions.retry_on_empty:
+                                raise Exception("Empty Response: Upstream returned empty content and no tool calls")
+                            else:
+                                # If retry disabled, just return empty response (or handle gracefully)
+                                pass # Continue to construct response
+
+                        # Construct final response
+                        message = {
+                            "role": role,
+                            "content": aggregated_content if aggregated_content else None
                         }
-                    }
-                    
-                    # 5. Log: Full Response
-                    full_resp_time = time.time()
-                    # Duration from First Token -> Full Return
-                    duration_since_ttft = (full_resp_time - ttft_time)*1000
-                    
-                    final_usage = final_response["usage"]
-                    p_tok = final_usage.get("prompt_tokens", 0)
-                    c_tok = final_usage.get("completion_tokens", 0)
-                    
-                    trace_logger.log(trace_id, "FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count, details=f"完整响应接收完毕 | Tokens: {p_tok}+{c_tok}")
-                    if trace_callback:
-                        trace_callback("FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
-                    
-                    return final_response
-            except Exception as e:
-                    # Propagate exception to context manager
-                    if not await ctx.__aexit__(type(e), e, e.__traceback__):
-                        raise
-            else:
-                    # Success exit
-                    await ctx.__aexit__(None, None, None)
+                        
+                        if aggregated_tool_calls:
+                            tool_calls_list = []
+                            for i in sorted(aggregated_tool_calls.keys()):
+                                tool_calls_list.append(aggregated_tool_calls[i])
+                            message["tool_calls"] = tool_calls_list
+                        
+                        # Calculate completion tokens locally if needed
+                        local_completion_tokens = 0
+                        if not usage_info:
+                            local_completion_tokens = self._count_tokens(aggregated_content, model_id)
+
+                        final_response = {
+                            "id": f"chatcmpl-{int(time.time())}",
+                            "object": "chat.completion",
+                            "created": int(time.time()),
+                            "model": model_id,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "message": message,
+                                    "finish_reason": finish_reason or "stop"
+                                }
+                            ],
+                            "usage": usage_info or {
+                                "prompt_tokens": local_prompt_tokens,
+                                "completion_tokens": local_completion_tokens,
+                                "total_tokens": local_prompt_tokens + local_completion_tokens
+                            }
+                        }
+                        
+                        # 5. Log: Full Response
+                        full_resp_time = time.time()
+                        # Duration from First Token -> Full Return
+                        duration_since_ttft = (full_resp_time - ttft_time)*1000
+                        
+                        final_usage = final_response["usage"]
+                        p_tok = final_usage.get("prompt_tokens", 0)
+                        c_tok = final_usage.get("completion_tokens", 0)
+                        
+                        trace_logger.log(trace_id, "FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count, details=f"完整响应接收完毕 | Tokens: {p_tok}+{c_tok}")
+                        if trace_callback:
+                            trace_callback("FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
+                        
+                        return final_response
+                except Exception as e:
+                        # Propagate exception to context manager
+                        if not await ctx.__aexit__(type(e), e, e.__traceback__):
+                            raise
+                else:
+                        # Success exit
+                        await ctx.__aexit__(None, None, None)
+            
+            finally:
+                if temp_client:
+                    await temp_client.aclose()
 
         except httpx.ReadTimeout:
             raise Exception("Total Timeout (Read): Read timeout from upstream")
