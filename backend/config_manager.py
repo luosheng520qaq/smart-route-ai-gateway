@@ -36,6 +36,7 @@ class RouterModelConfig(BaseModel):
     model: str = "gpt-3.5-turbo"
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
+    verify_ssl: bool = True
     prompt_template: str = """You are an intelligent router for an LLM system. Your job is to classify the USER'S INTENT into one of three tiers (T1, T2, T3) to select the most appropriate model.
     
 **TIER DEFINITIONS:**
@@ -79,10 +80,12 @@ class ProviderConfig(BaseModel):
     base_url: str
     api_key: str
     protocol: str = "openai" # openai, v1-messages
+    verify_ssl: bool = True
 
 class UpstreamConfig(BaseModel):
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
+    verify_ssl: bool = True
 
 class ProvidersConfig(BaseModel):
     upstream: UpstreamConfig = UpstreamConfig()

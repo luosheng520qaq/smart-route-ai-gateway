@@ -487,6 +487,9 @@ class RouterEngine:
                 
                 # Note: self._client has global limits, but we need specific timeout here.
                 # request-level timeout overrides client timeout.
+                # Verify SSL based on router config
+                verify_ssl = getattr(config.router, "verify_ssl", True)
+                
                 resp = await self._client.post(
                     f"{config.router.base_url.rstrip('/')}/chat/completions",
                     json={
@@ -496,7 +499,9 @@ class RouterEngine:
                         "temperature": 0.0
                     },
                     headers={"Authorization": f"Bearer {config.router.api_key}"},
-                    timeout=5.0
+                    timeout=5.0,
+                    # Disable verify if configured (e.g. self-signed certs)
+                    verify=verify_ssl
                 )
                     
             # Log Router End
@@ -647,6 +652,8 @@ class RouterEngine:
                     target_base_url = config.providers.upstream.base_url
                     target_api_key = config.providers.upstream.api_key
                     target_protocol = "openai"
+                    # Default to upstream verify_ssl (fallback to True if missing in config object)
+                    target_verify_ssl = getattr(config.providers.upstream, "verify_ssl", True)
                     provider_label = None
                     
                     # 1. Check if model entry has "provider/model" format
@@ -661,6 +668,7 @@ class RouterEngine:
                             target_api_key = provider.api_key
                             target_model_id = real_model_id
                             target_protocol = getattr(provider, "protocol", "openai")
+                            target_verify_ssl = getattr(provider, "verify_ssl", True)
                             provider_label = provider_id
                         else:
                             logger.warning(f"Provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
@@ -674,6 +682,7 @@ class RouterEngine:
                             target_base_url = provider.base_url
                             target_api_key = provider.api_key
                             target_protocol = getattr(provider, "protocol", "openai")
+                            target_verify_ssl = getattr(provider, "verify_ssl", True)
                             provider_label = provider_id
                         else:
                              logger.warning(f"Mapped provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
@@ -702,7 +711,7 @@ class RouterEngine:
                     # Let's modify _call_upstream to return metadata along with response?
                     # Or pass the add_trace_event callback.
                     
-                    response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms, trace_id, retry_count, call_start_time, add_trace_event, protocol=target_protocol)
+                    response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms, trace_id, retry_count, call_start_time, add_trace_event, protocol=target_protocol, verify_ssl=target_verify_ssl)
                     
                     # Record Success for Adaptive Routing
                     self._record_success(model_id_entry)
@@ -870,7 +879,7 @@ class RouterEngine:
         
         raise HTTPException(status_code=502, detail=f"All models failed after {retry_count} retries. Last error: {str(last_error)}")
 
-    async def _call_upstream(self, request: ChatCompletionRequest, model_id: str, base_url: str, api_key: str, timeout_ms: int, stream_timeout_ms: int, trace_id: str, retry_count: int, req_start_time: float, trace_callback=None, protocol: str = "openai") -> Dict[str, Any]:
+    async def _call_upstream(self, request: ChatCompletionRequest, model_id: str, base_url: str, api_key: str, timeout_ms: int, stream_timeout_ms: int, trace_id: str, retry_count: int, req_start_time: float, trace_callback=None, protocol: str = "openai", verify_ssl: bool = True) -> Dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
@@ -981,7 +990,7 @@ class RouterEngine:
              url = f"{base}/messages"
              
              try:
-                 response = await self._client.post(url, json=payload, headers=headers, timeout=timeout_config)
+                 response = await self._client.post(url, json=payload, headers=headers, timeout=timeout_config, verify=verify_ssl)
                  
                  ttft_time = time.time()
                  duration_ttft = (ttft_time - req_start_time) * 1000
@@ -1099,7 +1108,8 @@ class RouterEngine:
         try:
             # Manually manage the stream context to decouple TTFT timeout from Body timeout
             # Use global client with specific request timeout
-            ctx = self._client.stream("POST", f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=headers, timeout=timeout_config)
+            # Pass verify_ssl to handle self-signed certificates if configured
+            ctx = self._client.stream("POST", f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=headers, timeout=timeout_config, verify=verify_ssl)
             
             try:
                 # Enforce TTFT (Wait for Headers)
