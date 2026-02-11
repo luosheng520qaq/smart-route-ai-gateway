@@ -580,7 +580,8 @@ class RouterEngine:
              if current_len > 0:
                  if current_len < retry_limit:
                      # Extend list if rounds > models (Cycle through models)
-                     multiplier = (retry_limit // current_len) + 1
+                     # multiplier = ceil(retry_limit / current_len)
+                     multiplier = (retry_limit + current_len - 1) // current_len
                      sorted_models = (sorted_models * multiplier)[:retry_limit]
                  elif current_len > retry_limit:
                      # Truncate if we have more models than requested rounds
