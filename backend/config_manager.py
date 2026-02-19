@@ -85,6 +85,7 @@ class ProviderConfig(BaseModel):
 class UpstreamConfig(BaseModel):
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
+    protocol: str = "openai"  # openai, v1-messages, v1-response
     verify_ssl: bool = True
 
 class ProvidersConfig(BaseModel):

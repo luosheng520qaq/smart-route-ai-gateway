@@ -698,7 +698,7 @@ class RouterEngine:
                     target_model_id = model_id_entry
                     target_base_url = config.providers.upstream.base_url
                     target_api_key = config.providers.upstream.api_key
-                    target_protocol = "openai"
+                    target_protocol = getattr(config.providers.upstream, "protocol", "openai")
                     # Default to upstream verify_ssl (fallback to True if missing in config object)
                     target_verify_ssl = getattr(config.providers.upstream, "verify_ssl", True)
                     provider_label = None
@@ -937,7 +937,7 @@ class RouterEngine:
         payload["model"] = model_id
         
         # Check Protocol for Stream
-        if protocol == "v1-messages":
+        if protocol == "v1-messages" or protocol == "v1-response":
             payload["stream"] = False
         else:
             payload["stream"] = True # Force stream for aggregation
@@ -974,7 +974,7 @@ class RouterEngine:
         
         # Ensure critical fields
         final_payload["model"] = model_id
-        if protocol == "v1-messages":
+        if protocol == "v1-messages" or protocol == "v1-response":
             final_payload["stream"] = False
         else:
             final_payload["stream"] = True
@@ -999,6 +999,143 @@ class RouterEngine:
         )
         
         if self._client is None: await self.startup()
+
+        # Handle v1-response Protocol (No Stream, /v1/responses endpoint)
+        if protocol == "v1-response":
+             # Convert OpenAI messages to v1/responses format
+             # v1/responses uses similar input to v1/chat/completions but with a different endpoint
+             base = base_url.rstrip('/')
+             url = f"{base}/responses"
+             
+             try:
+                # FORCE DISABLE SSL VERIFICATION as requested by user
+                verify_ssl = False
+                
+                temp_client = httpx.AsyncClient(verify=False, timeout=timeout_config)
+                client_to_use = temp_client
+                    
+                try:
+                    logger.info(f"Upstream Request (v1-response): {url} (SSL Disabled)")
+                    response = await client_to_use.post(url, json=payload, headers=headers, timeout=timeout_config)
+                finally:
+                    if temp_client:
+                        await temp_client.aclose()
+                 
+                ttft_time = time.time()
+                duration_ttft = (ttft_time - req_start_time) * 1000
+                trace_logger.log(trace_id, "FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count, details=f"完整响应 (No Stream) | 模型: {model_id}")
+                if trace_callback:
+                    trace_callback("FIRST_TOKEN", ttft_time, duration_ttft, "success", retry_count)
+
+                if response.status_code != 200:
+                    error_str = response.text
+                    should_retry = False
+                    if response.status_code in config.retries.conditions.status_codes:
+                        should_retry = True
+                    
+                    if not should_retry:
+                        lower_error = error_str.lower()
+                        for k in config.retries.conditions.error_keywords:
+                            if k in lower_error:
+                                should_retry = True
+                                break
+                    
+                    if should_retry:
+                        raise Exception(f"Upstream Error (Retryable): {response.status_code} - {error_str}")
+                    else:
+                        raise Exception(f"Upstream Error: {response.status_code} - {error_str}")
+
+                response_data = response.json()
+                
+                # 转换 v1/responses 响应格式为 OpenAI chat.completions 兼容格式
+                if "choices" not in response_data:
+                    content_text = ""
+                    tool_calls = []
+                    
+                    # v1/responses 格式分析
+                    # 通常 v1/responses 返回的 output 字段中包含内容
+                    if "output" in response_data:
+                        output = response_data["output"]
+                        if isinstance(output, list):
+                            for item in output:
+                                if isinstance(item, dict):
+                                    item_type = item.get("type")
+                                    if item_type == "output_text":
+                                        content_text += item.get("text", "")
+                                    elif item_type == "function_call":
+                                        # 转换为 tool_calls 格式
+                                        tool_call = {
+                                            "id": item.get("id", f"call_{int(time.time())}"),
+                                            "type": "function",
+                                            "function": {
+                                                "name": item.get("name", ""),
+                                                "arguments": json.dumps(item.get("arguments", {}))
+                                            }
+                                        }
+                                        tool_calls.append(tool_call)
+                        elif isinstance(output, str):
+                            content_text = output
+                    
+                    # 构造 Message 对象
+                    message_obj = {
+                        "role": "assistant",
+                        "content": content_text if content_text else None
+                    }
+                    if tool_calls:
+                        message_obj["tool_calls"] = tool_calls
+                    
+                    # 获取 usage 信息
+                    prompt_tokens = self._count_messages_tokens(request.messages, model_id)
+                    completion_tokens = self._count_tokens(content_text, model_id)
+                    
+                    if "usage" in response_data:
+                        usage = response_data["usage"]
+                        if "input_tokens" in usage:
+                            prompt_tokens = usage["input_tokens"]
+                        if "output_tokens" in usage:
+                            completion_tokens = usage["output_tokens"]
+                    
+                    # 构造 OpenAI 格式响应
+                    mapped_response = {
+                        "id": response_data.get("id", f"chatcmpl-{int(time.time())}"),
+                        "object": "chat.completion",
+                        "created": int(time.time()),
+                        "model": response_data.get("model", model_id),
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": message_obj,
+                                "finish_reason": response_data.get("status", "stop")
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": prompt_tokens + completion_tokens
+                        }
+                    }
+                        
+                    response_data = mapped_response
+                
+                full_resp_time = time.time()
+                duration_since_ttft = (full_resp_time - ttft_time)*1000
+                
+                usage = response_data.get("usage", {})
+                p_tok = usage.get("prompt_tokens", 0)
+                c_tok = usage.get("completion_tokens", 0)
+                
+                trace_logger.log(trace_id, "FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count, details=f"完整响应接收完毕 | Tokens: {p_tok}+{c_tok}")
+                if trace_callback:
+                    trace_callback("FULL_RESPONSE", full_resp_time, duration_since_ttft, "success", retry_count)
+                
+                return response_data
+                
+             except httpx.ReadTimeout:
+                raise Exception("Total Timeout (Read): Read timeout from upstream")
+             except httpx.ConnectTimeout:
+                raise Exception("Connect Timeout: Connect timeout to upstream")
+             except Exception:
+                 raise
 
         # Handle v1-messages Protocol (No Stream, Different Endpoint Logic)
         if protocol == "v1-messages":

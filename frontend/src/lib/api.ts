@@ -76,6 +76,7 @@ export interface RetrySettings {
 export interface UpstreamConfig {
     base_url: string;
     api_key: string;
+    protocol?: string;
     verify_ssl?: boolean;
 }
 

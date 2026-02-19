@@ -377,6 +377,28 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="grid gap-2">
+                        <Label>协议类型 (Protocol)</Label>
+                        <Select 
+                            value={config.providers.upstream.protocol || "openai"} 
+                            onValueChange={(val) => setConfig({
+                                ...config,
+                                providers: {
+                                    ...config.providers,
+                                    upstream: {...config.providers.upstream, protocol: val}
+                                }
+                            })}
+                        >
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="openai">Standard (v1/chat/completions)</SelectItem>
+                                <SelectItem value="v1-messages">Messages (v1/messages + No Stream)</SelectItem>
+                                <SelectItem value="v1-response">Responses (v1/responses + No Stream)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="grid gap-2">
                         <Label>Base URL</Label>
                         <Input 
                             value={config.providers.upstream.base_url}
@@ -453,6 +475,7 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                                     <SelectContent>
                                         <SelectItem value="openai">Standard (v1/chat/completions)</SelectItem>
                                         <SelectItem value="v1-messages">Messages (v1/messages + No Stream)</SelectItem>
+                                        <SelectItem value="v1-response">Responses (v1/responses + No Stream)</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>

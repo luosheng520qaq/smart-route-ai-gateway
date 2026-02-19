@@ -61,6 +61,7 @@
     "upstream": {
       "base_url": "https://api.openai.com/v1",
       "api_key": "",
+      "protocol": "openai",
       "verify_ssl": false
     },
     "custom": {},
