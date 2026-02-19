@@ -1658,4 +1658,86 @@ class RouterEngine:
             except Exception as e:
                 logger.error(f"Failed to log request: {e}")
 
+    async def test_model_connection(self, model_item: Any) -> Dict[str, Any]:
+        """Test if a model is available and responsive."""
+        normalized = self._normalize_model_entry(model_item)
+        model_name = normalized["model"]
+        provider_id = normalized["provider"]
+        
+        config = config_manager.get_config()
+        
+        target_base_url = config.providers.upstream.base_url
+        target_api_key = config.providers.upstream.api_key
+        target_protocol = getattr(config.providers.upstream, "protocol", "openai")
+        target_verify_ssl = getattr(config.providers.upstream, "verify_ssl", True)
+        
+        if provider_id != "upstream":
+            if provider_id in config.providers.custom:
+                provider = config.providers.custom[provider_id]
+                target_base_url = provider.base_url
+                target_api_key = provider.api_key
+                target_protocol = getattr(provider, "protocol", "openai")
+                target_verify_ssl = getattr(provider, "verify_ssl", True)
+            else:
+                return {
+                    "success": False,
+                    "error": f"Provider '{provider_id}' not found"
+                }
+        
+        try:
+            headers = {
+                "Authorization": f"Bearer {target_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            timeout_config = httpx.Timeout(
+                connect=5.0,
+                read=10.0,
+                write=10.0,
+                pool=10.0
+            )
+            
+            test_payload = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 5
+            }
+            
+            if target_protocol == "v1-messages":
+                test_payload["stream"] = False
+                url = f"{target_base_url.rstrip('/')}/messages"
+            elif target_protocol == "v1-response":
+                test_payload["stream"] = False
+                url = f"{target_base_url.rstrip('/')}/responses"
+            else:
+                test_payload["stream"] = False
+                url = f"{target_base_url.rstrip('/')}/chat/completions"
+            
+            temp_client = httpx.AsyncClient(verify=target_verify_ssl, timeout=timeout_config)
+            try:
+                start_time = time.time()
+                response = await temp_client.post(url, json=test_payload, headers=headers, timeout=timeout_config)
+                duration_ms = (time.time() - start_time) * 1000
+                
+                if response.status_code == 200:
+                    return {
+                        "success": True,
+                        "duration_ms": duration_ms,
+                        "status_code": response.status_code
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "status_code": response.status_code,
+                        "error": response.text
+                    }
+            finally:
+                await temp_client.aclose()
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
 router_engine = RouterEngine()

@@ -231,7 +231,24 @@ export const exportLogs = async (filters: LogFilters = {}) => {
   return response.data;
 };
 
+export interface ModelTestRequest {
+  model: string;
+  provider: string;
+}
+
+export interface ModelTestResult {
+  success: boolean;
+  duration_ms?: number;
+  status_code?: number;
+  error?: string;
+}
+
 export const fetchModelStats = async () => {
   const response = await api.get<Record<string, { failures: number; success: number; failure_score?: number; health_score?: number }>>('/api/stats/models');
+  return response.data;
+};
+
+export const testModelConnection = async (data: ModelTestRequest) => {
+  const response = await api.post<ModelTestResult>('/api/models/test', data);
   return response.data;
 };

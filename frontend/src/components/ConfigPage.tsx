@@ -8,8 +8,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Save, Plus, Trash2, Brain, HeartPulse, ShieldCheck, Settings, Server, Network, History as HistoryIcon, RotateCcw, Database } from 'lucide-react';
-import { AppConfig, fetchConfig, updateConfig, fetchHistory, rollbackConfig, ConfigHistory, api } from '@/lib/api';
+import { Save, Plus, Trash2, Brain, HeartPulse, ShieldCheck, Settings, Server, Network, History as HistoryIcon, RotateCcw, Database, Zap } from 'lucide-react';
+import { AppConfig, fetchConfig, updateConfig, fetchHistory, rollbackConfig, ConfigHistory, api, testModelConnection, ModelTestResult } from '@/lib/api';
 import { Setup2FA } from './AuthPage';
 import { ChangePassword } from './ChangePassword';
 import { ChangeUsername } from './ChangeUsername';
@@ -205,8 +205,38 @@ function GeneralSettings({ config, setConfig }: { config: AppConfig, setConfig: 
 }
 
 function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
+    const [testingModel, setTestingModel] = useState<string | null>(null);
+    const [modelTestResults, setModelTestResults] = useState<Record<string, ModelTestResult>>({});
+    
     const updateList = (level: 't1' | 't2' | 't3', list: any[]) => {
         setConfig({...config, models: {...config.models, [level]: list}});
+    };
+    
+    const handleTestModel = async (modelName: string, providerId: string, index: number, level: string) => {
+        const key = `${level}-${index}`;
+        setTestingModel(key);
+        
+        try {
+            const result = await testModelConnection({
+                model: modelName,
+                provider: providerId
+            });
+            
+            setModelTestResults(prev => ({
+                ...prev,
+                [key]: result
+            }));
+            
+            if (result.success) {
+                toast.success(`模型测试成功 (${(result.duration_ms || 0).toFixed(0)}ms)`);
+            } else {
+                toast.error(`模型测试失败: ${result.error || "未知错误"}`);
+            }
+        } catch (e: any) {
+            toast.error(`测试请求失败: ${e.message || "未知错误"}`);
+        } finally {
+            setTestingModel(null);
+        }
     };
 
     return (
@@ -335,10 +365,24 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                                     updateList(level as any, newList);
                                                 }}
                                             />
+                                            <Button 
+                                                variant="ghost" 
+                                                size="icon"
+                                                disabled={testingModel === `${level}-${idx}` || !modelName}
+                                                onClick={() => handleTestModel(modelName, providerId, idx, level)}
+                                            >
+                                                <Zap className={`h-4 w-4 ${
+                                                    modelTestResults[`${level}-${idx}`]?.success 
+                                                        ? 'text-green-500' 
+                                                        : modelTestResults[`${level}-${idx}`] 
+                                                            ? 'text-red-500' 
+                                                            : 'text-muted-foreground'
+                                                }`} />
+                                            </Button>
                                             <Button variant="ghost" size="icon" onClick={() => {
-                                                const newList = [...config.models[level as 't1'|'t2'|'t3']];
-                                                newList.splice(idx, 1);
-                                                updateList(level as any, newList);
+                                                  const newList = [...config.models[level as 't1'|'t2'|'t3']];
+                                                  newList.splice(idx, 1);
+                                                  updateList(level as any, newList);
                                             }}>
                                                 <Trash2 className="h-4 w-4 text-red-500"/>
                                             </Button>

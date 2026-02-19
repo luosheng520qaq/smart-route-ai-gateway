@@ -280,6 +280,10 @@ async def change_username(
 class RouterTestRequest(BaseModel):
     message: str
 
+class ModelTestRequest(BaseModel):
+    model: str
+    provider: str = "upstream"
+
 @app.post("/api/router/test", dependencies=[Depends(get_current_active_user)])
 async def test_router(req: RouterTestRequest):
     """
@@ -304,6 +308,19 @@ async def test_router(req: RouterTestRequest):
         logger.error(f"Router Test Failed: {e}")
         # Return error details to help debugging
         raise HTTPException(status_code=500, detail=f"Router Test Failed: {str(e)}")
+
+@app.post("/api/models/test", dependencies=[Depends(get_current_active_user)])
+async def test_model(req: ModelTestRequest):
+    """Test if a specific model with provider is available and responsive."""
+    try:
+        result = await router_engine.test_model_connection({
+            "model": req.model,
+            "provider": req.provider
+        })
+        return result
+    except Exception as e:
+        logger.error(f"Model Test Failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Model Test Failed: {str(e)}")
 
 @app.get("/api/config", dependencies=[Depends(get_current_active_user)])
 async def get_config():
