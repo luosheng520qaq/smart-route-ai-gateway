@@ -55,10 +55,15 @@ export interface GeneralConfig {
   gateway_api_key: string;
 }
 
+export interface ModelEntry {
+  model: string;
+  provider: string;
+}
+
 export interface ModelsConfig {
-  t1: string[];
-  t2: string[];
-  t3: string[];
+  t1: (ModelEntry | string)[];
+  t2: (ModelEntry | string)[];
+  t3: (ModelEntry | string)[];
   strategies: Record<string, string>;
 }
 

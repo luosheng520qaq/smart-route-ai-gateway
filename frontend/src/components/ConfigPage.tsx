@@ -205,7 +205,7 @@ function GeneralSettings({ config, setConfig }: { config: AppConfig, setConfig: 
 }
 
 function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
-    const updateList = (level: 't1' | 't2' | 't3', list: string[]) => {
+    const updateList = (level: 't1' | 't2' | 't3', list: any[]) => {
         setConfig({...config, models: {...config.models, [level]: list}});
     };
 
@@ -287,34 +287,73 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                             )}
 
                             <div className="space-y-2">
-                                {config.models[level as 't1'|'t2'|'t3'].map((model, idx) => (
-                                    <div key={idx} className="flex gap-2">
-                                        <Input 
-                                            value={model}
-                                            onChange={(e) => {
+                                {config.models[level as 't1'|'t2'|'t3'].map((item, idx) => {
+                                    // Normalize to consistent format
+                                    let modelName: string;
+                                    let providerId: string;
+                                    if (typeof item === 'string') {
+                                        if (item.includes('/')) {
+                                            const parts = item.split('/');
+                                            providerId = parts[0];
+                                            modelName = parts[1];
+                                        } else {
+                                            providerId = 'upstream';
+                                            modelName = item;
+                                        }
+                                    } else {
+                                        modelName = item.model;
+                                        providerId = item.provider;
+                                    }
+                                    
+                                    const providerOptions = ['upstream', ...Object.keys(config.providers.custom || {})];
+                                    
+                                    return (
+                                        <div key={idx} className="flex gap-2 items-center">
+                                            <Select 
+                                                value={providerId} 
+                                                onValueChange={(val) => {
+                                                    const newList = [...config.models[level as 't1'|'t2'|'t3']];
+                                                    newList[idx] = { model: modelName, provider: val };
+                                                    updateList(level as any, newList);
+                                                }}
+                                            >
+                                                <SelectTrigger className="w-[140px]">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {providerOptions.map(p => (
+                                                        <SelectItem key={p} value={p}>{p}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            <Input 
+                                                className="flex-1"
+                                                value={modelName}
+                                                onChange={(e) => {
+                                                    const newList = [...config.models[level as 't1'|'t2'|'t3']];
+                                                    newList[idx] = { model: e.target.value, provider: providerId };
+                                                    updateList(level as any, newList);
+                                                }}
+                                            />
+                                            <Button variant="ghost" size="icon" onClick={() => {
                                                 const newList = [...config.models[level as 't1'|'t2'|'t3']];
-                                                newList[idx] = e.target.value;
+                                                newList.splice(idx, 1);
                                                 updateList(level as any, newList);
-                                            }}
-                                        />
-                                        <Button variant="ghost" size="icon" onClick={() => {
-                                            const newList = [...config.models[level as 't1'|'t2'|'t3']];
-                                            newList.splice(idx, 1);
-                                            updateList(level as any, newList);
-                                        }}>
-                                            <Trash2 className="h-4 w-4 text-red-500"/>
-                                        </Button>
-                                    </div>
-                                ))}
+                                            }}>
+                                                <Trash2 className="h-4 w-4 text-red-500"/>
+                                            </Button>
+                                        </div>
+                                    );
+                                })}
                                 <div className="flex gap-2">
                                     <Button variant="outline" size="sm" onClick={() => {
-                                        const newList = [...config.models[level as 't1'|'t2'|'t3'], ""];
+                                        const newList = [...config.models[level as 't1'|'t2'|'t3'], { model: "", provider: "upstream" }];
                                         updateList(level as any, newList);
                                     }}>
                                         <Plus className="h-4 w-4 mr-1"/> 添加模型
                                     </Button>
                                     <BatchAddDialog onAdd={(models) => {
-                                        const newList = [...config.models[level as 't1'|'t2'|'t3'], ...models];
+                                        const newList = [...config.models[level as 't1'|'t2'|'t3'], ...models.map(m => ({ model: m, provider: "upstream" }))];
                                         updateList(level as any, newList);
                                     }} />
                                 </div>

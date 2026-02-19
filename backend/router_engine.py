@@ -17,7 +17,7 @@ from typing import List, Dict, Any, Optional, Union
 from fastapi import HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
-from config_manager import config_manager
+from config_manager import config_manager, ModelEntry
 from database import AsyncSessionLocal, RequestLog
 from logger import trace_logger
 
@@ -60,6 +60,47 @@ class RouterEngine:
     _model_stats: Dict[str, Dict[str, Any]] = {} # { "model_id": { "failures": 0.0, "success": 0, "last_updated": timestamp } }
     _stats_file: str = "model_stats.json"
     _tokenizer = None
+    
+    def _normalize_model_entry(self, item: Any) -> Dict[str, Any]:
+        """Normalize any model entry to a consistent dictionary format with 'model' and 'provider' fields."""
+        if isinstance(item, dict):
+            if "model" in item:
+                # Already in new format
+                return item
+            else:
+                # Old format dict without model field, treat as just model name
+                # This shouldn't happen, but handle it just in case
+                return {"model": str(item), "provider": "upstream"}
+        elif isinstance(item, str):
+            # Old format string
+            if "/" in item:
+                parts = item.split("/", 1)
+                return {"model": parts[1], "provider": parts[0]}
+            else:
+                return {"model": item, "provider": "upstream"}
+        elif hasattr(item, "model") and hasattr(item, "provider"):
+            # Pydantic ModelEntry object
+            return {"model": item.model, "provider": item.provider}
+        else:
+            # Fallback
+            return {"model": str(item), "provider": "upstream"}
+    
+    def _extract_model_id(self, item: Any) -> str:
+        """Extract a unique model ID for stats tracking (provider/model or just model)."""
+        normalized = self._normalize_model_entry(item)
+        if normalized["provider"] == "upstream":
+            return normalized["model"]
+        else:
+            return f"{normalized['provider']}/{normalized['model']}"
+    
+    def _get_all_model_ids(self, config) -> List[str]:
+        """Get all unique model IDs from config for stats initialization."""
+        model_ids = []
+        for level in ["t1", "t2", "t3"]:
+            model_list = getattr(config.models, level, [])
+            for item in model_list:
+                model_ids.append(self._extract_model_id(item))
+        return model_ids
 
     def _get_tokenizer(self, model: str):
         if self._tokenizer: return self._tokenizer
@@ -117,7 +158,7 @@ class RouterEngine:
         
         # Pre-populate stats for all configured models (if not in file)
         config = config_manager.get_config()
-        all_models = set(config.models.t1 + config.models.t2 + config.models.t3)
+        all_models = set(self._get_all_model_ids(config))
         for m in all_models:
             if m and m not in self._model_stats:
                 self._model_stats[m] = {
@@ -238,7 +279,7 @@ class RouterEngine:
     def cleanup_stats(self):
         """Remove stats for models that are no longer in the configuration"""
         config = config_manager.get_config()
-        current_models = set(config.models.t1 + config.models.t2 + config.models.t3)
+        current_models = set(self._get_all_model_ids(config))
         
         # Identify keys to remove (to avoid modifying dict while iterating)
         to_remove = [m for m in self._model_stats if m not in current_models]
@@ -259,7 +300,7 @@ class RouterEngine:
         
         self._save_stats() # Persist after cleanup
 
-    def _get_sorted_models(self, models: List[str], strategy: str) -> List[str]:
+    def _get_sorted_models(self, models: List[Any], strategy: str) -> List[Any]:
         if not models:
             return []
             
@@ -282,9 +323,10 @@ class RouterEngine:
             
             scored_models = []
             for m in models:
+                model_id = self._extract_model_id(m)
                 # Refresh stats first to apply time decay
-                self._refresh_stats(m)
-                stats = self._get_model_stats(m)
+                self._refresh_stats(model_id)
+                stats = self._get_model_stats(model_id)
                 
                 weight = 1.0 / (1.0 + stats["failure_score"] * 0.5) # Increased sensitivity slightly (0.2 -> 0.5) since failures decay now
                 
@@ -680,22 +722,28 @@ class RouterEngine:
             if round_idx > 0:
                 logger.info(f"Starting Round {round_idx + 1}/{max_rounds} for level {level}")
                 
-            for model_id_entry in models:
+            for model_item in models:
+                # Normalize to consistent format
+                normalized = self._normalize_model_entry(model_item)
+                model_name = normalized["model"]
+                provider_id = normalized["provider"]
+                model_id_for_stats = self._extract_model_id(model_item)
+                
                 # Skip hard failures always, skip soft failures only for this round
-                if model_id_entry in excluded_models or model_id_entry in round_failed_models:
+                if model_id_for_stats in excluded_models or model_id_for_stats in round_failed_models:
                     continue
                 
                 # Check for active cooldown (Global Health Check)
-                stats = self._get_model_stats(model_id_entry)
+                stats = self._get_model_stats(model_id_for_stats)
                 if stats.get("cooldown_until", 0) > time.time():
-                    logger.info(f"Skipping model {model_id_entry} due to active cooldown (Until {stats['cooldown_until']})")
+                    logger.info(f"Skipping model {model_id_for_stats} due to active cooldown (Until {stats['cooldown_until']})")
                     # If all models are in cooldown, we might run out of models.
                     # But that's intended behavior: "Cool down" means don't use it.
                     continue
 
                 try:
                     # Resolve Provider
-                    target_model_id = model_id_entry
+                    target_model_id = model_name
                     target_base_url = config.providers.upstream.base_url
                     target_api_key = config.providers.upstream.api_key
                     target_protocol = getattr(config.providers.upstream, "protocol", "openai")
@@ -703,36 +751,31 @@ class RouterEngine:
                     target_verify_ssl = getattr(config.providers.upstream, "verify_ssl", True)
                     provider_label = None
                     
-                    # 1. Check if model entry has "provider/model" format
-                    if "/" in model_id_entry:
-                        parts = model_id_entry.split("/", 1)
-                        provider_id = parts[0]
-                        real_model_id = parts[1]
-                        
+                    # Check if we are using a custom provider
+                    if provider_id != "upstream":
                         if provider_id in config.providers.custom:
                             provider = config.providers.custom[provider_id]
                             target_base_url = provider.base_url
                             target_api_key = provider.api_key
-                            target_model_id = real_model_id
                             target_protocol = getattr(provider, "protocol", "openai")
                             target_verify_ssl = getattr(provider, "verify_ssl", True)
                             provider_label = provider_id
                         else:
-                            logger.warning(f"Provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
+                            logger.warning(f"Provider '{provider_id}' not found for model '{model_name}'. Using default upstream.")
                             pass 
 
-                    # 2. Check model_provider_map if no prefix used (or prefix resolution failed/ignored)
-                    elif model_id_entry in config.providers.map:
-                        provider_id = config.providers.map[model_id_entry]
-                        if provider_id in config.providers.custom:
-                            provider = config.providers.custom[provider_id]
+                    # Check model_provider_map (for compatibility)
+                    elif model_name in config.providers.map:
+                        mapped_provider_id = config.providers.map[model_name]
+                        if mapped_provider_id in config.providers.custom:
+                            provider = config.providers.custom[mapped_provider_id]
                             target_base_url = provider.base_url
                             target_api_key = provider.api_key
                             target_protocol = getattr(provider, "protocol", "openai")
                             target_verify_ssl = getattr(provider, "verify_ssl", True)
-                            provider_label = provider_id
+                            provider_label = mapped_provider_id
                         else:
-                             logger.warning(f"Mapped provider '{provider_id}' not found for model '{model_id_entry}'. Using default upstream.")
+                             logger.warning(f"Mapped provider '{provider_id}' not found for model '{model_name}'. Using default upstream.")
 
                     # Construct Display Model Name (Provider/Model)
                     display_model_name = f"{provider_label}/{target_model_id}" if provider_label else target_model_id
@@ -761,7 +804,7 @@ class RouterEngine:
                     response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms, trace_id, retry_count, call_start_time, add_trace_event, protocol=target_protocol, verify_ssl=target_verify_ssl)
                     
                     # Record Success for Adaptive Routing
-                    self._record_success(model_id_entry)
+                    self._record_success(model_id_for_stats)
 
                     # 3. Log: Full Response (Success)
                     end_time = time.time()
@@ -794,13 +837,13 @@ class RouterEngine:
                              # Recalculate local tokens here if missing
                              # Get prompt messages
                              req_messages = request.messages
-                             prompt_tokens = self._count_messages_tokens(req_messages, model_id_entry)
+                             prompt_tokens = self._count_messages_tokens(req_messages, model_name)
                              
                              # Get completion content
                              completion_content = ""
                              if "choices" in response_data and response_data["choices"]:
                                  completion_content = response_data["choices"][0]["message"].get("content", "")
-                             completion_tokens = self._count_tokens(completion_content, model_id_entry)
+                             completion_tokens = self._count_tokens(completion_content, model_name)
 
                     # Log success (Async via BackgroundTasks)
                     background_tasks.add_task(
@@ -868,7 +911,7 @@ class RouterEngine:
                     add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=display_model_name, reason=reason)
                     
                     # Record Failure for Adaptive Routing with calculated penalty and cooldown
-                    self._record_failure(model_id_entry, penalty=penalty, cooldown_seconds=cooldown)
+                    self._record_failure(model_id_for_stats, penalty=penalty, cooldown_seconds=cooldown)
 
                     # Accumulate error history
                     detailed_error = f"[Round {round_idx + 1}|{display_model_name}] {reason}"
@@ -879,19 +922,19 @@ class RouterEngine:
                     # Strategy: 
                     # 1. Hard Failures (Auth, Client Error) -> Exclude for entire request
                     if "401" in error_msg or "403" in error_msg or "404" in error_msg:
-                         excluded_models.add(model_id_entry)
+                         excluded_models.add(model_id_for_stats)
                     # 2. Rate Limit (429) -> Exclude for entire request to avoid spamming
                     #    If we had multiple API keys for the same model, we could retry, but here we assume 1:1 mapping.
                     elif "429" in error_msg:
-                         excluded_models.add(model_id_entry)
+                         excluded_models.add(model_id_for_stats)
                     # 3. Custom Retry Logic (Keywords/Status Codes) -> Exclude for this round only (Soft Failure)
                     #    If it matched a retry condition, we should retry it in next round (or other models).
                     elif "Error Keyword Match" in error_msg or "Status Code Error" in error_msg:
-                         round_failed_models.add(model_id_entry)
+                         round_failed_models.add(model_id_for_stats)
                     # 4. Other Soft Failures (503 Service Unavailable, Timeout) -> Exclude for this round only
                     #    (This allows retrying in next round if max_rounds > 1)
                     elif "503" in error_msg or "Timeout" in error_msg:
-                         round_failed_models.add(model_id_entry)
+                         round_failed_models.add(model_id_for_stats)
 
                     logger.error(f"Model {display_model_name} failed (Round {round_idx + 1}): {e}")
                     last_error = e

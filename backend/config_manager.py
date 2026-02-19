@@ -11,11 +11,37 @@ class GeneralConfig(BaseModel):
     log_retention_days: int = 7
     gateway_api_key: str = ""
 
+class ModelEntry(BaseModel):
+    model: str
+    provider: str = "upstream"
+
 class ModelsConfig(BaseModel):
-    t1: List[str] = ["gpt-3.5-turbo", "gpt-4o-mini"]
-    t2: List[str] = ["gpt-4", "gpt-4-turbo"]
-    t3: List[str] = ["gpt-4-32k", "claude-3-opus"]
+    t1: List[ModelEntry] = [
+        ModelEntry(model="gpt-3.5-turbo"),
+        ModelEntry(model="gpt-4o-mini")
+    ]
+    t2: List[ModelEntry] = [
+        ModelEntry(model="gpt-4"),
+        ModelEntry(model="gpt-4-turbo")
+    ]
+    t3: List[ModelEntry] = [
+        ModelEntry(model="gpt-4-32k"),
+        ModelEntry(model="claude-3-opus")
+    ]
     strategies: Dict[str, str] = {"t1": "sequential", "t2": "sequential", "t3": "sequential"}
+    
+    # Compatibility: For migration, allow reading as list of strings
+    @property
+    def t1_strings(self):
+        return [m.model if isinstance(m, ModelEntry) else m for m in self.t1]
+    
+    @property
+    def t2_strings(self):
+        return [m.model if isinstance(m, ModelEntry) else m for m in self.t2]
+    
+    @property
+    def t3_strings(self):
+        return [m.model if isinstance(m, ModelEntry) else m for m in self.t3]
 
 class TimeoutConfig(BaseModel):
     connect: Dict[str, int] = {"t1": 5000, "t2": 15000, "t3": 30000} # TTFT
@@ -161,6 +187,27 @@ class ConfigManager:
             cls._instance.load_config()
         return cls._instance
 
+    def _convert_model_list(self, model_list: List[Any]) -> List[ModelEntry]:
+        """Convert model list from old format (strings with optional provider prefix) to new format (ModelEntry objects)."""
+        result = []
+        for item in model_list:
+            if isinstance(item, dict) and "model" in item:
+                # Already in new format
+                result.append(ModelEntry(**item))
+            elif isinstance(item, str):
+                # Old format: check for slash to extract provider
+                if "/" in item:
+                    parts = item.split("/", 1)
+                    provider_id = parts[0]
+                    model_name = parts[1]
+                    result.append(ModelEntry(model=model_name, provider=provider_id))
+                else:
+                    result.append(ModelEntry(model=item, provider="upstream"))
+            else:
+                # Fallback
+                result.append(ModelEntry(model=str(item), provider="upstream"))
+        return result
+    
     def load_config(self):
         if os.path.exists(self._config_path):
             try:
@@ -172,6 +219,16 @@ class ConfigManager:
                     print("[INFO] Detected legacy config format. Migrating...")
                     self._migrate_config(data)
                 else:
+                    # Auto-convert model lists if they are still in string format
+                    if "models" in data:
+                        models_data = data["models"]
+                        for level in ["t1", "t2", "t3"]:
+                            if level in models_data and models_data[level]:
+                                first_item = models_data[level][0] if models_data[level] else None
+                                if isinstance(first_item, str) or (isinstance(first_item, dict) and "model" not in first_item):
+                                    print(f"[INFO] Migrating {level} models from string format to ModelEntry format...")
+                                    models_data[level] = [m.model_dump() for m in self._convert_model_list(models_data[level])]
+                    
                     self._config = AppConfig(**data)
             except Exception as e:
                 print(f"[ERROR] Error loading config, using default: {e}")
