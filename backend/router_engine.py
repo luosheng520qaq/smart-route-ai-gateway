@@ -54,6 +54,7 @@ class ChatCompletionRequest(BaseModel):
     user: Optional[str] = None
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+    response_format: Optional[Dict[str, Any]] = None
 
 class RouterEngine:
     _client: Optional[httpx.AsyncClient] = None
@@ -1046,9 +1047,44 @@ class RouterEngine:
         # Handle v1-response Protocol (No Stream, /v1/responses endpoint)
         if protocol == "v1-response":
              # Convert OpenAI messages to v1/responses format
-             # v1/responses uses similar input to v1/chat/completions but with a different endpoint
              base = base_url.rstrip('/')
              url = f"{base}/responses"
+             
+             # 创建 v1/responses 格式的 payload
+             v1_response_payload = {
+                 "model": payload.get("model")
+             }
+             
+             # 转换 messages 为 input 格式
+             messages = payload.get("messages", [])
+             if messages:
+                 # 提取最后一条用户消息作为输入
+                 last_user_msg = None
+                 for msg in reversed(messages):
+                     if msg.get("role") == "user":
+                         last_user_msg = msg
+                         break
+                 
+                 if last_user_msg:
+                     content = last_user_msg.get("content", "")
+                     if isinstance(content, str):
+                         v1_response_payload["input"] = content
+                     elif isinstance(content, list):
+                         # 处理多模态内容
+                         v1_response_payload["input"] = content
+             
+             # 传递其他参数
+             if "max_tokens" in payload:
+                 v1_response_payload["max_output_tokens"] = payload["max_tokens"]
+             if "temperature" in payload:
+                 v1_response_payload["temperature"] = payload["temperature"]
+             if "top_p" in payload:
+                 v1_response_payload["top_p"] = payload["top_p"]
+             if "response_format" in payload:
+                 v1_response_payload["response_format"] = payload["response_format"]
+             
+             # 使用转换后的 payload
+             payload = v1_response_payload
              
              try:
                 # FORCE DISABLE SSL VERIFICATION as requested by user
@@ -1708,6 +1744,13 @@ class RouterEngine:
                 url = f"{target_base_url.rstrip('/')}/messages"
             elif target_protocol == "v1-response":
                 test_payload["stream"] = False
+                # 转换为 v1/responses 格式
+                v1_response_payload = {
+                    "model": model_name,
+                    "input": "Hi",
+                    "max_output_tokens": 5
+                }
+                test_payload = v1_response_payload
                 url = f"{target_base_url.rstrip('/')}/responses"
             else:
                 test_payload["stream"] = False
