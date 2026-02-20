@@ -357,6 +357,33 @@ class RouterEngine:
             return "".join(text_parts)
         return str(content)
 
+    def _convert_content_to_v1_response(self, content: Any, mode: str = "input") -> List[Dict[str, Any]]:
+        """
+        Convert OpenAI content format to v1/responses format.
+        mode: "input" for user messages, "output" for assistant messages
+        """
+        if content is None:
+            return []
+        if isinstance(content, str):
+            text_type = "input_text" if mode == "input" else "output_text"
+            return [{"type": text_type, "text": content}]
+        if isinstance(content, list):
+            result = []
+            for item in content:
+                if isinstance(item, dict):
+                    item_type = item.get("type")
+                    if item_type == "text":
+                        text_type = "input_text" if mode == "input" else "output_text"
+                        result.append({"type": text_type, "text": item.get("text", "")})
+                    elif item_type == "image_url":
+                        result.append({
+                            "type": "input_image",
+                            "image_url": item.get("image_url", {}).get("url", "")
+                        })
+            return result
+        text_type = "input_text" if mode == "input" else "output_text"
+        return [{"type": text_type, "text": str(content)}]
+
     def _convert_to_anthropic_messages(self, openai_messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Convert OpenAI message format to Anthropic format.
@@ -1056,22 +1083,74 @@ class RouterEngine:
              }
              
              # 转换 messages 为 input 格式
+             # v1/responses 的 input 是完整的消息列表
              messages = payload.get("messages", [])
              if messages:
-                 # 提取最后一条用户消息作为输入
-                 last_user_msg = None
-                 for msg in reversed(messages):
-                     if msg.get("role") == "user":
-                         last_user_msg = msg
-                         break
+                 converted_messages = []
+                 for msg in messages:
+                     role = msg.get("role")
+                     content = msg.get("content")
+                     tool_calls = msg.get("tool_calls")
+                     tool_call_id = msg.get("tool_call_id")
+                     
+                     if role == "system":
+                         # system 消息在 v1/responses 中使用 instructions 字段
+                         v1_response_payload["instructions"] = self._extract_text_from_content(content)
+                         continue
+                     
+                     if role == "tool":
+                         # 工具调用结果
+                         # v1/responses 格式: {"type": "function_call_output", "call_id": "...", "output": "..."}
+                         converted_msg = {
+                             "type": "function_call_output",
+                             "call_id": tool_call_id,
+                             "output": self._extract_text_from_content(content)
+                         }
+                         converted_messages.append(converted_msg)
+                     elif role == "assistant":
+                         # 助手消息，可能包含 tool_calls
+                         if tool_calls:
+                             # 转换 tool_calls 为 function_call 格式
+                             for tc in tool_calls:
+                                 func = tc.get("function", {})
+                                 converted_msg = {
+                                     "type": "function_call",
+                                     "id": tc.get("id"),
+                                     "name": func.get("name"),
+                                     "arguments": func.get("arguments")
+                                 }
+                                 converted_messages.append(converted_msg)
+                         if content:
+                             # 文本内容
+                             converted_msg = {
+                                 "role": "assistant",
+                                 "content": self._convert_content_to_v1_response(content, "output")
+                             }
+                             converted_messages.append(converted_msg)
+                     elif role == "user":
+                         # 用户消息
+                         converted_msg = {
+                             "role": "user",
+                             "content": self._convert_content_to_v1_response(content, "input")
+                         }
+                         converted_messages.append(converted_msg)
                  
-                 if last_user_msg:
-                     content = last_user_msg.get("content", "")
-                     if isinstance(content, str):
-                         v1_response_payload["input"] = content
-                     elif isinstance(content, list):
-                         # 处理多模态内容
-                         v1_response_payload["input"] = content
+                 v1_response_payload["input"] = converted_messages
+             
+             # 转换 tools 参数
+             if "tools" in payload:
+                 v1_tools = []
+                 for tool in payload["tools"]:
+                     if tool.get("type") == "function":
+                         func = tool.get("function", {})
+                         v1_tools.append({
+                             "type": "function",
+                             "name": func.get("name"),
+                             "description": func.get("description", ""),
+                             "parameters": func.get("parameters", {})
+                         })
+                 if v1_tools:
+                     v1_response_payload["tools"] = v1_tools
              
              # 传递其他参数
              if "max_tokens" in payload:
@@ -1081,7 +1160,12 @@ class RouterEngine:
              if "top_p" in payload:
                  v1_response_payload["top_p"] = payload["top_p"]
              if "response_format" in payload:
-                 v1_response_payload["response_format"] = payload["response_format"]
+                 # v1/responses 使用 text.format 字段
+                 rf = payload["response_format"]
+                 if rf.get("type") == "json_object":
+                     v1_response_payload["text"] = {"format": {"type": "json_object"}}
+                 elif rf.get("type") == "json_schema":
+                     v1_response_payload["text"] = {"format": rf}
              
              # 使用转换后的 payload
              payload = v1_response_payload
@@ -1132,26 +1216,43 @@ class RouterEngine:
                     tool_calls = []
                     
                     # v1/responses 格式分析
-                    # 通常 v1/responses 返回的 output 字段中包含内容
+                    # output 包含 message 类型和 function_call 类型
                     if "output" in response_data:
                         output = response_data["output"]
                         if isinstance(output, list):
                             for item in output:
                                 if isinstance(item, dict):
                                     item_type = item.get("type")
-                                    if item_type == "output_text":
-                                        content_text += item.get("text", "")
+                                    
+                                    if item_type == "message":
+                                        # 消息类型，提取 content
+                                        msg_content = item.get("content", [])
+                                        if isinstance(msg_content, list):
+                                            for c in msg_content:
+                                                if isinstance(c, dict) and c.get("type") == "output_text":
+                                                    content_text += c.get("text", "")
+                                        elif isinstance(msg_content, str):
+                                            content_text += msg_content
+                                    
                                     elif item_type == "function_call":
-                                        # 转换为 tool_calls 格式
+                                        # 函数调用类型
+                                        args = item.get("arguments")
+                                        if isinstance(args, dict):
+                                            args = json.dumps(args)
                                         tool_call = {
                                             "id": item.get("id", f"call_{int(time.time())}"),
                                             "type": "function",
                                             "function": {
                                                 "name": item.get("name", ""),
-                                                "arguments": json.dumps(item.get("arguments", {}))
+                                                "arguments": args or "{}"
                                             }
                                         }
                                         tool_calls.append(tool_call)
+                                    
+                                    elif item_type == "output_text":
+                                        # 直接输出文本（旧格式兼容）
+                                        content_text += item.get("text", "")
+                                        
                         elif isinstance(output, str):
                             content_text = output
                     
@@ -1184,7 +1285,7 @@ class RouterEngine:
                             {
                                 "index": 0,
                                 "message": message_obj,
-                                "finish_reason": response_data.get("status", "stop")
+                                "finish_reason": "tool_calls" if tool_calls else (response_data.get("status", "stop") or "stop")
                             }
                         ],
                         "usage": {
