@@ -257,7 +257,7 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <div className="flex items-center justify-between">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                 <Label>路由策略</Label>
                                 <Select 
                                     value={config.models.strategies[level] || "sequential"}
@@ -269,7 +269,7 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                         }
                                     })}
                                 >
-                                    <SelectTrigger className="w-[180px]">
+                                    <SelectTrigger className="w-full sm:w-[180px]">
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -281,11 +281,11 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                             </div>
 
                             {(config.models.strategies[level] || "sequential") === "sequential" ? (
-                                <div className="flex items-center justify-between">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                     <Label>最多顺序几轮 (完整尝试完一个列表算一轮)</Label>
                                     <Input 
                                         type="number" 
-                                        className="w-[180px]"
+                                        className="w-full sm:w-[180px]"
                                         min={1}
                                         value={config.retries.rounds[level] || 1}
                                         onChange={(e) => setConfig({
@@ -298,11 +298,11 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                     />
                                 </div>
                             ) : (
-                                <div className="flex items-center justify-between">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                     <Label>最大重试模型次数 (切换一个模型算一次)</Label>
                                     <Input 
                                         type="number" 
-                                        className="w-[180px]"
+                                        className="w-full sm:w-[180px]"
                                         min={1}
                                         value={config.retries.max_retries?.[level] || 3}
                                         onChange={(e) => setConfig({
@@ -338,54 +338,68 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                     const providerOptions = ['upstream', ...Object.keys(config.providers.custom || {})];
                                     
                                     return (
-                                        <div key={idx} className="flex gap-2 items-center">
-                                            <Select 
-                                                value={providerId} 
-                                                onValueChange={(val) => {
-                                                    const newList = [...config.models[level as 't1'|'t2'|'t3']];
-                                                    newList[idx] = { model: modelName, provider: val };
-                                                    updateList(level as any, newList);
-                                                }}
-                                            >
-                                                <SelectTrigger className="w-[140px]">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {providerOptions.map(p => (
-                                                        <SelectItem key={p} value={p}>{p}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                            <Input 
-                                                className="flex-1"
-                                                value={modelName}
-                                                onChange={(e) => {
-                                                    const newList = [...config.models[level as 't1'|'t2'|'t3']];
-                                                    newList[idx] = { model: e.target.value, provider: providerId };
-                                                    updateList(level as any, newList);
-                                                }}
-                                            />
-                                            <Button 
-                                                variant="ghost" 
-                                                size="icon"
-                                                disabled={testingModel === `${level}-${idx}` || !modelName}
-                                                onClick={() => handleTestModel(modelName, providerId, idx, level)}
-                                            >
-                                                <Zap className={`h-4 w-4 ${
-                                                    modelTestResults[`${level}-${idx}`]?.success 
-                                                        ? 'text-green-500' 
-                                                        : modelTestResults[`${level}-${idx}`] 
-                                                            ? 'text-red-500' 
-                                                            : 'text-muted-foreground'
-                                                }`} />
-                                            </Button>
-                                            <Button variant="ghost" size="icon" onClick={() => {
-                                                  const newList = [...config.models[level as 't1'|'t2'|'t3']];
-                                                  newList.splice(idx, 1);
-                                                  updateList(level as any, newList);
-                                            }}>
-                                                <Trash2 className="h-4 w-4 text-red-500"/>
-                                            </Button>
+                                        <div key={idx} className="flex flex-col sm:flex-row gap-2 p-3 border rounded-lg bg-muted/30">
+                                            <div className="flex flex-col sm:flex-row gap-2 flex-1">
+                                                <div className="flex flex-col gap-1.5 sm:w-[160px]">
+                                                    <Label className="text-xs text-muted-foreground sm:hidden">提供商</Label>
+                                                    <Select 
+                                                        value={providerId} 
+                                                        onValueChange={(val) => {
+                                                            const newList = [...config.models[level as 't1'|'t2'|'t3']];
+                                                            newList[idx] = { model: modelName, provider: val };
+                                                            updateList(level as any, newList);
+                                                        }}
+                                                    >
+                                                        <SelectTrigger className="w-full sm:w-[160px]">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {providerOptions.map(p => (
+                                                                <SelectItem key={p} value={p}>{p}</SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className="flex flex-col gap-1.5 flex-1">
+                                                    <Label className="text-xs text-muted-foreground sm:hidden">模型名称</Label>
+                                                    <Input 
+                                                        className="w-full"
+                                                        value={modelName}
+                                                        placeholder="模型名称"
+                                                        onChange={(e) => {
+                                                            const newList = [...config.models[level as 't1'|'t2'|'t3']];
+                                                            newList[idx] = { model: e.target.value, provider: providerId };
+                                                            updateList(level as any, newList);
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-1 sm:items-center justify-end">
+                                                <Button 
+                                                    variant="outline" 
+                                                    size="sm"
+                                                    disabled={testingModel === `${level}-${idx}` || !modelName}
+                                                    onClick={() => handleTestModel(modelName, providerId, idx, level)}
+                                                    className="gap-1"
+                                                >
+                                                    <Zap className={`h-4 w-4 ${
+                                                        modelTestResults[`${level}-${idx}`]?.success 
+                                                            ? 'text-green-500' 
+                                                            : modelTestResults[`${level}-${idx}`] 
+                                                                ? 'text-red-500' 
+                                                                : 'text-muted-foreground'
+                                                    }`} />
+                                                    <span className="sm:hidden">测试</span>
+                                                </Button>
+                                                <Button variant="outline" size="sm" onClick={() => {
+                                                      const newList = [...config.models[level as 't1'|'t2'|'t3']];
+                                                      newList.splice(idx, 1);
+                                                      updateList(level as any, newList);
+                                                }} className="gap-1">
+                                                    <Trash2 className="h-4 w-4 text-red-500"/>
+                                                    <span className="sm:hidden">删除</span>
+                                                </Button>
+                                            </div>
                                         </div>
                                     );
                                 })}
@@ -507,12 +521,12 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
             </Card>
 
             <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4">
                     <CardTitle>自定义供应商 (Custom Providers)</CardTitle>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
                          {providerIds.length > 0 && (
                              <Select value={selectedId} onValueChange={setSelectedId}>
-                                <SelectTrigger className="w-[180px]">
+                                <SelectTrigger className="flex-1 sm:w-[180px]">
                                     <SelectValue placeholder="选择供应商" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -530,9 +544,12 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                 <CardContent className="space-y-4 pt-4">
                     {currentProvider ? (
                         <div className="space-y-4 border p-4 rounded relative">
-                            <Button variant="ghost" size="icon" className="absolute top-2 right-2" onClick={() => handleDeleteProvider(selectedId)}>
-                                <Trash2 className="h-4 w-4 text-red-500"/>
-                            </Button>
+                            <div className="absolute top-2 right-2 sm:top-4 sm:right-4">
+                                <Button variant="outline" size="sm" onClick={() => handleDeleteProvider(selectedId)} className="gap-1">
+                                    <Trash2 className="h-4 w-4 text-red-500"/>
+                                    <span className="sm:hidden">删除</span>
+                                </Button>
+                            </div>
                             <div className="grid gap-2">
                                 <Label>Provider ID</Label>
                                 <Input value={selectedId} disabled />
