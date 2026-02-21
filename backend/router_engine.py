@@ -26,10 +26,16 @@ from logger import trace_logger
 class PrintLogger:
     def info(self, msg):
         print(f"[INFO] {msg}")
+        trace_logger.buffer.append(msg)
+        trace_logger.broadcast(msg)
     def warning(self, msg):
         print(f"[WARN] {msg}")
+        trace_logger.buffer.append(msg)
+        trace_logger.broadcast(msg)
     def error(self, msg):
         print(f"[ERROR] {msg}")
+        trace_logger.buffer.append(msg)
+        trace_logger.broadcast(msg)
 
 logger = PrintLogger()
 
@@ -304,41 +310,72 @@ class RouterEngine:
     def _get_sorted_models(self, models: List[Any], strategy: str) -> List[Any]:
         if not models:
             return []
+        
+        logger.info("=" * 60)
+        logger.info(f"[模型排序] 策略: {strategy.upper()}")
+        logger.info("=" * 60)
+        
+        # 打印原始模型列表（带提供商信息）
+        logger.info("📋 原始模型列表:")
+        for idx, m in enumerate(models):
+            normalized = self._normalize_model_entry(m)
+            provider_tag = f"[{normalized['provider']}]"
+            logger.info(f"  {idx + 1}. {provider_tag} {normalized['model']}")
+        
+        logger.info("-" * 60)
             
         if strategy == "sequential":
+            logger.info("✅ 使用顺序策略，保持原始顺序")
+            logger.info("=" * 60)
             return models
             
         if strategy == "random":
             # Pure random shuffle
             shuffled = list(models)
             random.shuffle(shuffled)
+            logger.info("🎲 使用随机策略，已打乱顺序:")
+            for idx, m in enumerate(shuffled):
+                normalized = self._normalize_model_entry(m)
+                provider_tag = f"[{normalized['provider']}]"
+                logger.info(f"  {idx + 1}. {provider_tag} {normalized['model']}")
+            logger.info("=" * 60)
             return shuffled
             
         if strategy == "adaptive":
-            # Weighted random based on failures
-            # Refined Algorithm: Weight = 1 / (1 + failure_score * 0.5)
-            # This makes the decay less aggressive. 
-            # 1 failure -> 1/1.2 = 0.83 (was 0.5)
-            # 5 failures -> 1/2.0 = 0.50 (was 0.16)
-            # 10 failures -> 1/3.0 = 0.33 (was 0.09)
-            
+            logger.info("🧠 使用自适应策略，计算各模型权重...")
             scored_models = []
             for m in models:
                 model_id = self._extract_model_id(m)
-                # Refresh stats first to apply time decay
                 self._refresh_stats(model_id)
                 stats = self._get_model_stats(model_id)
                 
-                weight = 1.0 / (1.0 + stats["failure_score"] * 0.5) # Increased sensitivity slightly (0.2 -> 0.5) since failures decay now
-                
-                # Probabilistic score: higher weight increases chance of higher score
+                weight = 1.0 / (1.0 + stats["failure_score"] * 0.5)
                 score = random.random() * weight
+                normalized = self._normalize_model_entry(m)
+                
+                provider_tag = f"[{normalized['provider']}]"
+                health_score = stats.get("health_score", 100)
+                cooldown_active = stats.get("cooldown_until", 0) > time.time()
+                
+                status_icon = "🔴" if cooldown_active else "🟢"
+                logger.info(f"  {status_icon} {provider_tag} {normalized['model']} | 健康度: {health_score}% | 权重: {weight:.3f} | 随机得分: {score:.3f}")
                 scored_models.append((score, m))
             
-            # Sort desc by score
             scored_models.sort(key=lambda x: x[0], reverse=True)
-            return [m for _, m in scored_models]
+            sorted_result = [m for _, m in scored_models]
             
+            logger.info("-" * 60)
+            logger.info("✅ 自适应排序完成，最终尝试顺序:")
+            for idx, m in enumerate(sorted_result):
+                normalized = self._normalize_model_entry(m)
+                provider_tag = f"[{normalized['provider']}]"
+                prefix = "➜" if idx == 0 else "  "
+                logger.info(f"  {prefix} {idx + 1}. {provider_tag} {normalized['model']}")
+            
+            logger.info("=" * 60)
+            return sorted_result
+            
+        logger.info("=" * 60)
         return models
 
     def _extract_text_from_content(self, content: Any) -> str:
@@ -669,6 +706,13 @@ class RouterEngine:
         start_time = time.time() # Request Arrived (T0)
         trace_id = str(uuid.uuid4())
         
+        # 🎯 请求开始 - 美观的标题日志
+        logger.info("")
+        logger.info("╔" + "═" * 58 + "╗")
+        logger.info("║" + " " * 15 + "🚀 新请求到达" + " " * 33 + "║")
+        logger.info("╚" + "═" * 58 + "╝")
+        logger.info(f"📌 Trace ID: {trace_id[:8]}...")
+        
         trace_events = [] # List to store trace events for DB
 
         def add_trace_event(stage, abs_time, duration, st, rc, model=None, reason=None):
@@ -692,42 +736,52 @@ class RouterEngine:
         
         config = config_manager.get_config()
         
+        logger.info("")
+        logger.info("📊 正在确定请求级别...")
         level = await self.determine_level(request.messages, trace_callback=add_trace_event)
+        logger.info(f"✅ 请求级别确定: {level.upper()}")
         
         models = []
         timeout_ms = 0
         stream_timeout_ms = 0
-        max_rounds = 1
+        
+        # 根据策略类型选择不同的重试配置
+        strategy = config.routing_strategies.get(level, "sequential")
         
         if level == "t1":
             models = config.models.t1
             timeout_ms = config.timeouts.connect.get("t1", 5000)
             stream_timeout_ms = config.timeouts.generation.get("t1", 300000)
-            max_rounds = config.retries.rounds.get("t1", 1)
+            if strategy == "sequential":
+                max_attempts = config.retries.rounds.get("t1", 1)
+            else:
+                max_attempts = config.retries.max_retries.get("t1", 3)
         elif level == "t2":
             models = config.models.t2
             timeout_ms = config.timeouts.connect.get("t2", 15000)
             stream_timeout_ms = config.timeouts.generation.get("t2", 300000)
-            max_rounds = config.retries.rounds.get("t2", 1)
+            if strategy == "sequential":
+                max_attempts = config.retries.rounds.get("t2", 1)
+            else:
+                max_attempts = config.retries.max_retries.get("t2", 3)
         else: # t3
             models = config.models.t3
             timeout_ms = config.timeouts.connect.get("t3", 30000)
             stream_timeout_ms = config.timeouts.generation.get("t3", 300000)
-            max_rounds = config.retries.rounds.get("t3", 1)
+            if strategy == "sequential":
+                max_attempts = config.retries.rounds.get("t3", 1)
+            else:
+                max_attempts = config.retries.max_retries.get("t3", 3)
             
         if not models:
             raise HTTPException(status_code=500, detail=f"No models configured for level {level}")
 
         # Apply Routing Strategy
-        strategy = config.routing_strategies.get(level, "sequential")
         sorted_models = self._get_sorted_models(models, strategy)
         
-        # Apply Strategy-specific Retry Logic
-        # Previous logic attempted to flatten retries into a single list for adaptive/random strategies.
-        # However, this caused issues with retry counting and log continuity (User Feedback).
-        # We now stick to the standard max_rounds loop for all strategies.
-        # This means max_rounds controls how many times we cycle through the ENTIRE model list.
-        # For adaptive/random, the order is determined once per request (above).
+        # 策略说明:
+        # - 顺序模式 (sequential): max_attempts 表示轮询整个模型列表的次数
+        # - 自适应/随机模式 (adaptive/random): max_attempts 表示最多尝试多少个不同的模型
         
         # Log if strategy reordered them
         if strategy != "sequential" and sorted_models != models:
@@ -738,36 +792,277 @@ class RouterEngine:
         last_stack_trace = None
         user_prompt = self._extract_text_from_content(request.messages[-1].get("content")) if request.messages else ""
         
-        # Ensure max_rounds is at least 1
-        if max_rounds < 1: max_rounds = 1
+        # Ensure max_attempts is at least 1
+        if max_attempts < 1: max_attempts = 1
         
         retry_count = 0
         attempt_errors = []
         excluded_models = set()
         
-        for round_idx in range(max_rounds):
-            round_failed_models = set()
-            if round_idx > 0:
-                logger.info(f"Starting Round {round_idx + 1}/{max_rounds} for level {level}")
-                
+        # 对于顺序模式，需要嵌套循环（轮数 × 模型数）
+        # 对于自适应/随机模式，只需要单层循环（最多尝试 max_attempts 个模型）
+        if strategy == "sequential":
+            # 顺序模式：轮询整个列表 max_attempts 次
+            total_models_to_try = len(models) * max_attempts
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info(f"[模型选择] 顺序模式 | 轮询次数: {max_attempts} | 模型数: {len(models)} | 总尝试上限: {total_models_to_try}")
+            logger.info("=" * 60)
+            
+            attempt_idx = 0
+            for round_idx in range(max_attempts):
+                round_failed_models = set()
+                if round_idx > 0:
+                    logger.info(f"Starting Round {round_idx + 1}/{max_attempts} for level {level}")
+                    
+                for model_idx, model_item in enumerate(models):
+                    attempt_idx += 1
+                    normalized = self._normalize_model_entry(model_item)
+                    model_name = normalized["model"]
+                    provider_id = normalized["provider"]
+                    model_id_for_stats = self._extract_model_id(model_item)
+                    
+                    provider_tag = f"[{provider_id}]"
+                    
+                    logger.info(f"  ┌──────────────────────────────────────────────")
+                    logger.info(f"  │ 🧪 尝试 {attempt_idx}/{total_models_to_try}: {provider_tag} {model_name} (轮次 {round_idx + 1})")
+                    logger.info(f"  │    统计ID: {model_id_for_stats}")
+                    
+                    # Skip hard failures always, skip soft failures only for this round
+                    if model_id_for_stats in excluded_models or model_id_for_stats in round_failed_models:
+                        reason = "排除列表" if model_id_for_stats in excluded_models else "本回合失败"
+                        logger.info(f"  │ ❌ 跳过: {reason}")
+                        logger.info(f"  └──────────────────────────────────────────────")
+                        continue
+                    
+                    # Check for active cooldown (Global Health Check)
+                    stats = self._get_model_stats(model_id_for_stats)
+                    if stats.get("cooldown_until", 0) > time.time():
+                        cooldown_remaining = int(stats["cooldown_until"] - time.time())
+                        logger.info(f"  │ ❌ 跳过: 冷却中 (剩余 {cooldown_remaining} 秒)")
+                        logger.info(f"  └──────────────────────────────────────────────")
+                        continue
+                    
+                    logger.info(f"  │ ✅ 通过检查，准备尝试...")
+                    logger.info(f"  └──────────────────────────────────────────────")
+                    
+                    # === 尝试模型的代码 ===
+                    try:
+                        # Resolve Provider
+                        target_model_id = model_name
+                        target_base_url = config.providers.upstream.base_url
+                        target_api_key = config.providers.upstream.api_key
+                        target_protocol = getattr(config.providers.upstream, "protocol", "openai")
+                        target_verify_ssl = getattr(config.providers.upstream, "verify_ssl", True)
+                        provider_label = None
+                        
+                        if provider_id != "upstream":
+                            if provider_id in config.providers.custom:
+                                provider = config.providers.custom[provider_id]
+                                target_base_url = provider.base_url
+                                target_api_key = provider.api_key
+                                target_protocol = getattr(provider, "protocol", "openai")
+                                target_verify_ssl = getattr(provider, "verify_ssl", True)
+                                provider_label = provider_id
+                            else:
+                                logger.warning(f"Provider '{provider_id}' not found for model '{model_name}'. Using default upstream.")
+                                pass 
+
+                        elif model_name in config.providers.map:
+                            mapped_provider_id = config.providers.map[model_name]
+                            if mapped_provider_id in config.providers.custom:
+                                provider = config.providers.custom[mapped_provider_id]
+                                target_base_url = provider.base_url
+                                target_api_key = provider.api_key
+                                target_protocol = getattr(provider, "protocol", "openai")
+                                target_verify_ssl = getattr(provider, "verify_ssl", True)
+                                provider_label = mapped_provider_id
+                            else:
+                                 logger.warning(f"Mapped provider '{provider_id}' not found for model '{model_name}'. Using default upstream.")
+
+                        if provider_label:
+                            display_model_name = f"{provider_label}/{target_model_id}"
+                        else:
+                            display_model_name = f"upstream/{target_model_id}"
+
+                        call_start_time = time.time()
+                        duration_since_req = (call_start_time - start_time) * 1000
+                        trace_logger.log(trace_id, "MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count, details=f"正在尝试: {display_model_name}")
+                        add_trace_event("MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count, model=display_model_name)
+                        
+                        logger.info("")
+                        logger.info("  " + "─" * 56)
+                        logger.info(f"  📤 正在请求: {display_model_name}")
+                        logger.info(f"     提供商URL: {target_base_url}")
+                        logger.info("  " + "─" * 56)
+                        
+                        response_data = await self._call_upstream(request, target_model_id, target_base_url, target_api_key, timeout_ms, stream_timeout_ms, trace_id, retry_count, call_start_time, add_trace_event, protocol=target_protocol, verify_ssl=target_verify_ssl)
+                        
+                        self._record_success(model_id_for_stats)
+
+                        end_time = time.time()
+                        duration = (end_time - start_time) * 1000
+                        
+                        token_source = "upstream"
+                        if "usage" in response_data:
+                             usage = response_data["usage"]
+                             prompt_tokens = usage.get("prompt_tokens", 0)
+                             completion_tokens = usage.get("completion_tokens", 0)
+                        else:
+                             token_source = "local"
+                             prompt_tokens = 0
+                             completion_tokens = 0
+                             if "usage" not in response_data:
+                                 req_messages = request.messages
+                                 prompt_tokens = self._count_messages_tokens(req_messages, model_name)
+                                 completion_content = ""
+                                 if "choices" in response_data and response_data["choices"]:
+                                     completion_content = response_data["choices"][0]["message"].get("content", "")
+                                 completion_tokens = self._count_tokens(completion_content, model_name)
+
+                        logger.info("")
+                        logger.info("  " + "─" * 56)
+                        logger.info(f"  ✅ 请求成功!")
+                        logger.info(f"  🤖 使用模型: {display_model_name}")
+                        logger.info(f"  ⏱️  总耗时: {duration:.1f}ms")
+                        logger.info(f"  📊 Token使用: {prompt_tokens} + {completion_tokens} = {prompt_tokens + completion_tokens}")
+                        logger.info("  " + "─" * 56)
+                        logger.info("")
+                        logger.info("╔" + "═" * 58 + "╗")
+                        logger.info("║" + " " * 18 + "🏁 请求完成" + " " * 30 + "║")
+                        logger.info("╚" + "═" * 58 + "╝")
+                        logger.info("")
+
+                        background_tasks.add_task(
+                            self._log_request,
+                            level, display_model_name, duration, "success", user_prompt, request.model_dump_json(), json.dumps(response_data), trace_events, None, retry_count, prompt_tokens, completion_tokens, token_source
+                        )
+                        
+                        trace_logger.log_separator("=")
+                        return response_data
+                    except Exception as e:
+                        fail_time = time.time()
+                        fail_duration = (fail_time - call_start_time) * 1000
+                        
+                        error_msg = str(e)
+                        reason = "Unknown Error"
+                        penalty = 1.0
+                        cooldown = 0
+                        
+                        if "TTFT Timeout" in error_msg:
+                            reason = "超首token限制时长"
+                            penalty = 0.5
+                        elif "Total Timeout" in error_msg:
+                            reason = "超总限制时长"
+                            penalty = 0.5
+                        elif "Status Code Error" in error_msg:
+                             reason = "触发错误状态码"
+                             if ":" in error_msg:
+                                 code_part = error_msg.split(':')[1].strip()
+                                 reason += f": {code_part}"
+                                 if "429" in code_part:
+                                     penalty = 10.0
+                                     cooldown = 60
+                                 elif "401" in code_part or "403" in code_part:
+                                     penalty = 50.0
+                                     cooldown = 300
+                                 elif code_part.strip().startswith("5"):
+                                     penalty = 1.0
+                        elif "Error Keyword Match" in error_msg:
+                             reason = "错误关键词"
+                             if ":" in error_msg:
+                                 reason += f": {error_msg.split(':')[1].strip()}"
+                             penalty = 10.0
+                             cooldown = 60
+                        elif "Empty Response" in error_msg:
+                            reason = "空返回"
+                            penalty = 1.0
+                        elif "Connect Timeout" in error_msg:
+                            reason = "连接超时"
+                            penalty = 0.5
+                        elif "Upstream Error" in error_msg:
+                             reason = "上游错误"
+                             if ":" in error_msg:
+                                 reason += f": {error_msg.split(':', 1)[1].strip()}"
+                             penalty = 1.0
+                        else:
+                            reason = error_msg
+                            penalty = 1.0
+
+                        logger.info("")
+                        logger.info("  " + "─" * 56)
+                        logger.info(f"  ❌ 模型请求失败")
+                        logger.info(f"  🤖 模型: {display_model_name}")
+                        logger.info(f"  ⚠️  原因: {reason}")
+                        logger.info(f"  ⏱️  耗时: {fail_duration:.1f}ms")
+                        if cooldown > 0:
+                            logger.info(f"  🕒  冷却: {cooldown}秒")
+                        logger.info("  " + "─" * 56)
+                        
+                        trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, details=f"原因: {reason} | 模型: {display_model_name}")
+                        add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=display_model_name, reason=reason)
+                        
+                        self._record_failure(model_id_for_stats, penalty=penalty, cooldown_seconds=cooldown)
+
+                        detailed_error = f"[Round {round_idx + 1}|{display_model_name}] {reason}"
+                        if str(e) != reason:
+                             detailed_error += f" ({str(e)})"
+                        attempt_errors.append(detailed_error)
+
+                        if "401" in error_msg or "403" in error_msg or "404" in error_msg:
+                             excluded_models.add(model_id_for_stats)
+                        elif "429" in error_msg:
+                             excluded_models.add(model_id_for_stats)
+                        elif "Error Keyword Match" in error_msg or "Status Code Error" in error_msg:
+                             round_failed_models.add(model_id_for_stats)
+                        elif "503" in error_msg or "Timeout" in error_msg:
+                             round_failed_models.add(model_id_for_stats)
+
+                        last_error = e
+                        last_stack_trace = traceback.format_exc()
+                        
+                        retry_count += 1
+                        continue
+                    # === 尝试模型的代码结束 ===
+        else:
+            # 自适应/随机模式：最多尝试 max_attempts 个不同的模型
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info(f"[模型选择] {strategy.upper()}模式 | 最大尝试次数: {max_attempts}")
+            logger.info("=" * 60)
+            
+            attempt_idx = 0
             for model_item in models:
-                # Normalize to consistent format
+                if attempt_idx >= max_attempts:
+                    logger.info(f"  ⚠️ 已达到最大尝试次数 {max_attempts}，停止尝试")
+                    break
+                    
+                attempt_idx += 1
                 normalized = self._normalize_model_entry(model_item)
                 model_name = normalized["model"]
                 provider_id = normalized["provider"]
                 model_id_for_stats = self._extract_model_id(model_item)
                 
-                # Skip hard failures always, skip soft failures only for this round
-                if model_id_for_stats in excluded_models or model_id_for_stats in round_failed_models:
+                provider_tag = f"[{provider_id}]"
+                
+                logger.info(f"  ┌──────────────────────────────────────────────")
+                logger.info(f"  │ 🧪 尝试 {attempt_idx}/{max_attempts}: {provider_tag} {model_name}")
+                logger.info(f"  │    统计ID: {model_id_for_stats}")
+                
+                if model_id_for_stats in excluded_models:
+                    logger.info(f"  │ ❌ 跳过: 排除列表")
+                    logger.info(f"  └──────────────────────────────────────────────")
                     continue
                 
-                # Check for active cooldown (Global Health Check)
                 stats = self._get_model_stats(model_id_for_stats)
                 if stats.get("cooldown_until", 0) > time.time():
-                    logger.info(f"Skipping model {model_id_for_stats} due to active cooldown (Until {stats['cooldown_until']})")
-                    # If all models are in cooldown, we might run out of models.
-                    # But that's intended behavior: "Cool down" means don't use it.
+                    cooldown_remaining = int(stats["cooldown_until"] - time.time())
+                    logger.info(f"  │ ❌ 跳过: 冷却中 (剩余 {cooldown_remaining} 秒)")
+                    logger.info(f"  └──────────────────────────────────────────────")
                     continue
+                
+                logger.info(f"  │ ✅ 通过检查，准备尝试...")
+                logger.info(f"  └──────────────────────────────────────────────")
 
                 try:
                     # Resolve Provider
@@ -806,7 +1101,11 @@ class RouterEngine:
                              logger.warning(f"Mapped provider '{provider_id}' not found for model '{model_name}'. Using default upstream.")
 
                     # Construct Display Model Name (Provider/Model)
-                    display_model_name = f"{provider_label}/{target_model_id}" if provider_label else target_model_id
+                    if provider_label:
+                        display_model_name = f"{provider_label}/{target_model_id}"
+                    else:
+                        # 对于 upstream 提供商，使用 "upstream" 作为前缀，便于在日志中识别
+                        display_model_name = f"upstream/{target_model_id}"
 
                     # 2. Log: Model Call Start
                     call_start_time = time.time()
@@ -819,7 +1118,11 @@ class RouterEngine:
                     
                     add_trace_event("MODEL_CALL_START", call_start_time, duration_since_req, "success", retry_count, model=display_model_name)
                     
-                    logger.info(f"Trying model {display_model_name} (Provider URL: {target_base_url}) for level {level} (Round {round_idx + 1})")
+                    logger.info("")
+                    logger.info("  " + "─" * 56)
+                    logger.info(f"  📤 正在请求: {display_model_name}")
+                    logger.info(f"     提供商URL: {target_base_url}")
+                    logger.info("  " + "─" * 56)
                     
                     # Pass callback or wrapper to capture internal events if needed, or just return them
                     # Actually _call_upstream needs to return timing info or we pass a mutable object
@@ -840,38 +1143,35 @@ class RouterEngine:
                     
                     # Extract usage if available
                     token_source = "upstream"
-                    # usage_info is NOT available here because it's local to _call_upstream
-                    # We need _call_upstream to return usage info
                     if "usage" in response_data:
                          usage = response_data["usage"]
                          prompt_tokens = usage.get("prompt_tokens", 0)
                          completion_tokens = usage.get("completion_tokens", 0)
                     else:
-                         # Fallback to local calculation (approximate since we don't have full context here easily without re-calculating)
-                         # Actually, response_data SHOULD contain usage if _call_upstream constructed it correctly.
-                         # If response_data has usage, we use it. 
-                         # If not, we can try local calc but we need content.
                          token_source = "local"
-                         # We don't have local_prompt_tokens here easily unless we recalc or pass it out.
-                         # Let's trust _call_upstream to populate usage in response_data.
                          prompt_tokens = 0
                          completion_tokens = 0
-                         
-                         # Check if usage is inside response_data
-                         if "usage" in response_data:
-                             token_source = "upstream" # Oh wait, we just checked that above.
-                             pass
-                         else:
-                             # Recalculate local tokens here if missing
-                             # Get prompt messages
+                         if "usage" not in response_data:
                              req_messages = request.messages
                              prompt_tokens = self._count_messages_tokens(req_messages, model_name)
-                             
-                             # Get completion content
                              completion_content = ""
                              if "choices" in response_data and response_data["choices"]:
                                  completion_content = response_data["choices"][0]["message"].get("content", "")
                              completion_tokens = self._count_tokens(completion_content, model_name)
+
+                    # 🎉 成功响应的美观日志
+                    logger.info("")
+                    logger.info("  " + "─" * 56)
+                    logger.info(f"  ✅ 请求成功!")
+                    logger.info(f"  🤖 使用模型: {display_model_name}")
+                    logger.info(f"  ⏱️  总耗时: {duration:.1f}ms")
+                    logger.info(f"  📊 Token使用: {prompt_tokens} + {completion_tokens} = {prompt_tokens + completion_tokens}")
+                    logger.info("  " + "─" * 56)
+                    logger.info("")
+                    logger.info("╔" + "═" * 58 + "╗")
+                    logger.info("║" + " " * 18 + "🏁 请求完成" + " " * 30 + "║")
+                    logger.info("╚" + "═" * 58 + "╝")
+                    logger.info("")
 
                     # Log success (Async via BackgroundTasks)
                     background_tasks.add_task(
@@ -935,6 +1235,17 @@ class RouterEngine:
                         reason = error_msg # No truncation
                         penalty = 1.0
 
+                    # ❌ 模型失败的美观日志
+                    logger.info("")
+                    logger.info("  " + "─" * 56)
+                    logger.info(f"  ❌ 模型请求失败")
+                    logger.info(f"  🤖 模型: {display_model_name}")
+                    logger.info(f"  ⚠️  原因: {reason}")
+                    logger.info(f"  ⏱️  耗时: {fail_duration:.1f}ms")
+                    if cooldown > 0:
+                        logger.info(f"  🕒  冷却: {cooldown}秒")
+                    logger.info("  " + "─" * 56)
+                    
                     trace_logger.log(trace_id, "MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, details=f"原因: {reason} | 模型: {display_model_name}")
                     add_trace_event("MODEL_FAIL", fail_time, fail_duration, "fail", retry_count, model=display_model_name, reason=reason)
                     
@@ -942,7 +1253,7 @@ class RouterEngine:
                     self._record_failure(model_id_for_stats, penalty=penalty, cooldown_seconds=cooldown)
 
                     # Accumulate error history
-                    detailed_error = f"[Round {round_idx + 1}|{display_model_name}] {reason}"
+                    detailed_error = f"[Attempt {attempt_idx}|{display_model_name}] {reason}"
                     if str(e) != reason:
                          detailed_error += f" ({str(e)})"
                     attempt_errors.append(detailed_error)
@@ -952,19 +1263,9 @@ class RouterEngine:
                     if "401" in error_msg or "403" in error_msg or "404" in error_msg:
                          excluded_models.add(model_id_for_stats)
                     # 2. Rate Limit (429) -> Exclude for entire request to avoid spamming
-                    #    If we had multiple API keys for the same model, we could retry, but here we assume 1:1 mapping.
                     elif "429" in error_msg:
                          excluded_models.add(model_id_for_stats)
-                    # 3. Custom Retry Logic (Keywords/Status Codes) -> Exclude for this round only (Soft Failure)
-                    #    If it matched a retry condition, we should retry it in next round (or other models).
-                    elif "Error Keyword Match" in error_msg or "Status Code Error" in error_msg:
-                         round_failed_models.add(model_id_for_stats)
-                    # 4. Other Soft Failures (503 Service Unavailable, Timeout) -> Exclude for this round only
-                    #    (This allows retrying in next round if max_rounds > 1)
-                    elif "503" in error_msg or "Timeout" in error_msg:
-                         round_failed_models.add(model_id_for_stats)
 
-                    logger.error(f"Model {display_model_name} failed (Round {round_idx + 1}): {e}")
                     last_error = e
                     last_stack_trace = traceback.format_exc()
                     
@@ -974,6 +1275,16 @@ class RouterEngine:
                 
         # All failed
         duration = (time.time() - start_time) * 1000
+        
+        # 💥 所有模型失败的美观日志
+        logger.info("")
+        logger.info("╔" + "═" * 58 + "╗")
+        logger.info("║" + " " * 15 + "💥 所有模型失败" + " " * 31 + "║")
+        logger.info("╚" + "═" * 58 + "╝")
+        logger.info(f"📊 尝试次数: {retry_count}")
+        logger.info(f"⏱️  总耗时: {duration:.1f}ms")
+        logger.info("")
+        
         trace_logger.log(trace_id, "ALL_FAILED", time.time(), duration, "fail", retry_count, details=f"所有 {len(models)} 个模型尝试均失败")
         add_trace_event("ALL_FAILED", time.time(), duration, "fail", retry_count)
         
@@ -1788,7 +2099,8 @@ class RouterEngine:
                     retry_count=retry_count,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
-                    token_source=token_source
+                    token_source=token_source,
+                    category=category
                 )
                 session.add(log_entry)
                 await session.commit()
