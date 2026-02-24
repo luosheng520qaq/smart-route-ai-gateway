@@ -2104,6 +2104,9 @@ class RouterEngine:
                 )
                 session.add(log_entry)
                 await session.commit()
+                
+                from database import update_daily_stats
+                await update_daily_stats(log_entry)
             except Exception as e:
                 logger.error(f"Failed to log request: {e}")
 

@@ -15,7 +15,7 @@ import json
 import os
 
 from config_manager import config_manager, AppConfig
-from database import init_db, get_db, RequestLog, AsyncSession, prune_logs
+from database import init_db, get_db, RequestLog, AsyncSession, prune_logs, DailyStats, migrate_historical_stats
 from router_engine import router_engine, ChatCompletionRequest
 from logger import trace_logger
 
@@ -51,6 +51,8 @@ async def verify_gateway_key(credentials: HTTPAuthorizationCredentials = Securit
 async def lifespan(app: FastAPI):
     # Startup logic
     await init_db()
+    # Migrate historical stats from request_logs to daily_stats
+    await migrate_historical_stats()
     # Initialize Router Engine (HTTP Client)
     await router_engine.startup()
     
@@ -533,36 +535,50 @@ async def export_logs(
 
 @app.get("/api/stats", dependencies=[Depends(get_current_active_user)])
 async def get_stats(range: str = Query("today", pattern="^(today|3days|all)$"), db: AsyncSession = Depends(get_db)):
-    # Calculate Time Range
     now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     
-    start_time = None
+    start_date_str = None
     if range == "today":
-        start_time = today_start
+        start_date_str = today_start.strftime("%Y-%m-%d")
     elif range == "3days":
-        start_time = today_start - timedelta(days=2) # Today + 2 previous days
-    # else "all": start_time remains None
+        start_date_str = (today_start - timedelta(days=2)).strftime("%Y-%m-%d")
     
-    # --- Base Filter Condition ---
-    filter_cond = True if start_time is None else RequestLog.timestamp >= start_time
+    filter_cond = True
+    if start_date_str:
+        filter_cond = DailyStats.date >= start_date_str
     
-    # --- 1. Total Requests (in range) ---
-    q_total = select(func.count(RequestLog.id)).where(filter_cond)
-    res_total = await db.execute(q_total)
-    total_requests = res_total.scalar() or 0
-
-    # --- 2. Change Percentage (vs Previous Period) ---
-    # Only applicable for 'today' (vs yesterday) or maybe '3days' (vs previous 3 days).
-    # For simplicity, we keep the 'vs Yesterday' logic only when range='today'.
-    # For other ranges, we might just show N/A or compare with previous same-length period.
+    q_agg = select(
+        func.sum(DailyStats.total_requests),
+        func.sum(DailyStats.success_count),
+        func.sum(DailyStats.error_count),
+        func.sum(DailyStats.total_duration_ms),
+        func.sum(DailyStats.total_prompt_tokens),
+        func.sum(DailyStats.total_completion_tokens),
+        func.sum(DailyStats.total_retries),
+        func.sum(DailyStats.t1_count),
+        func.sum(DailyStats.t2_count),
+        func.sum(DailyStats.t3_count)
+    ).where(filter_cond)
+    
+    res_agg = await db.execute(q_agg)
+    agg_row = res_agg.one()
+    
+    total_requests = agg_row[0] or 0
+    total_success = agg_row[1] or 0
+    total_error = agg_row[2] or 0
+    total_duration = agg_row[3] or 0.0
+    prompt_tokens = agg_row[4] or 0
+    completion_tokens = agg_row[5] or 0
+    total_retries = agg_row[6] or 0
+    t1_count = agg_row[7] or 0
+    t2_count = agg_row[8] or 0
+    t3_count = agg_row[9] or 0
+    
     change_pct = 0.0
-    
     if range == "today":
-        yesterday_start = today_start - timedelta(days=1)
-        q_yesterday = select(func.count(RequestLog.id)).where(
-            and_(RequestLog.timestamp >= yesterday_start, RequestLog.timestamp < today_start)
-        )
+        yesterday_str = (today_start - timedelta(days=1)).strftime("%Y-%m-%d")
+        q_yesterday = select(func.sum(DailyStats.total_requests)).where(DailyStats.date == yesterday_str)
         res_yesterday = await db.execute(q_yesterday)
         requests_prev = res_yesterday.scalar() or 0
         
@@ -570,12 +586,12 @@ async def get_stats(range: str = Query("today", pattern="^(today|3days|all)$"), 
             change_pct = ((total_requests - requests_prev) / requests_prev) * 100
         else:
             change_pct = 100.0 if total_requests > 0 else 0.0
-            
     elif range == "3days":
-        # Compare with previous 3 days
-        prev_3days_start = start_time - timedelta(days=3)
-        q_prev = select(func.count(RequestLog.id)).where(
-             and_(RequestLog.timestamp >= prev_3days_start, RequestLog.timestamp < start_time)
+        prev_start = today_start - timedelta(days=5)
+        prev_end = today_start - timedelta(days=3)
+        q_prev = select(func.sum(DailyStats.total_requests)).where(
+            and_(DailyStats.date >= prev_start.strftime("%Y-%m-%d"), 
+                 DailyStats.date < prev_end.strftime("%Y-%m-%d"))
         )
         res_prev = await db.execute(q_prev)
         requests_prev = res_prev.scalar() or 0
@@ -583,48 +599,28 @@ async def get_stats(range: str = Query("today", pattern="^(today|3days|all)$"), 
         if requests_prev > 0:
             change_pct = ((total_requests - requests_prev) / requests_prev) * 100
         else:
-             change_pct = 100.0 if total_requests > 0 else 0.0
-
-    # --- 3. Avg Duration (in range) ---
-    q_avg = select(func.avg(RequestLog.duration_ms)).where(filter_cond)
-    res_avg = await db.execute(q_avg)
-    avg_duration = res_avg.scalar() or 0
+            change_pct = 100.0 if total_requests > 0 else 0.0
     
-    # --- 4. Error Rate (in range) ---
-    q_retry_sum = select(func.sum(RequestLog.retry_count)).where(filter_cond)
-    res_retry_sum = await db.execute(q_retry_sum)
-    total_retries = res_retry_sum.scalar() or 0
+    avg_duration = total_duration / total_requests if total_requests > 0 else 0.0
     
-    q_success_count = select(func.count(RequestLog.id)).where(
-        and_(filter_cond, RequestLog.status == "success")
-    )
-    res_success_count = await db.execute(q_success_count)
-    total_success_attempts = res_success_count.scalar() or 0
-    
-    total_attempts = total_retries + total_success_attempts
+    total_attempts = total_retries + total_success
     error_rate = (total_retries / total_attempts * 100) if total_attempts > 0 else 0
     
-    # --- 5. Intent Distribution (in range) ---
-    q_intent = select(RequestLog.level, func.count(RequestLog.id)).where(filter_cond).group_by(RequestLog.level)
-    res_intent = await db.execute(q_intent)
-    intent_dist = [{"name": row[0], "value": row[1]} for row in res_intent.all()]
+    intent_dist = []
+    if t1_count > 0:
+        intent_dist.append({"name": "t1", "value": t1_count})
+    if t2_count > 0:
+        intent_dist.append({"name": "t2", "value": t2_count})
+    if t3_count > 0:
+        intent_dist.append({"name": "t3", "value": t3_count})
     
-    # --- 6. Response Trend (Limit to last 50 within range) ---
-    q_trend = select(RequestLog.timestamp, RequestLog.duration_ms).where(filter_cond).order_by(desc(RequestLog.timestamp)).limit(50)
+    q_trend = select(DailyStats.date, DailyStats.total_duration_ms, DailyStats.total_requests).where(filter_cond).order_by(DailyStats.date)
     res_trend = await db.execute(q_trend)
-    trend_data = [{"time": row[0].isoformat(), "duration": row[1]} for row in res_trend.all()][::-1]
-
-    # --- 7. Token Usage (New) ---
-    q_tokens = select(
-        func.sum(RequestLog.prompt_tokens),
-        func.sum(RequestLog.completion_tokens)
-    ).where(filter_cond)
-    res_tokens = await db.execute(q_tokens)
-    prompt_tokens, completion_tokens = res_tokens.one()
+    trend_data = []
+    for row in res_trend.all():
+        avg_dur = row.total_duration_ms / row.total_requests if row.total_requests > 0 else 0
+        trend_data.append({"time": row.date, "duration": avg_dur})
     
-    prompt_tokens = prompt_tokens or 0
-    completion_tokens = completion_tokens or 0
-
     return {
         "total_requests": total_requests,
         "request_change_percentage": round(change_pct, 1),
