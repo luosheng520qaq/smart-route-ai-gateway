@@ -24,6 +24,7 @@ export function Dashboard() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [timeRange, setTimeRange] = useState<'today' | '3days' | 'all'>('today');
   const [tokenUnit, setTokenUnit] = useState<'k' | 'm'>('k');
+  const [durationUnit, setDurationUnit] = useState<'ms' | 's'>('ms');
 
   const loadData = async () => {
     try {
@@ -122,7 +123,19 @@ export function Dashboard() {
             <Clock className="h-4 w-4 text-muted-foreground group-hover:text-cyan-500 transition-colors" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-500 to-teal-400">{stats?.avg_duration} <span className="text-sm text-foreground/50">ms</span></div>
+            <div 
+               className="cursor-pointer select-none touch-none active:scale-95 transition-transform"
+               onClick={() => setDurationUnit(durationUnit === 'ms' ? 's' : 'ms')}
+               title="点击切换单位 (毫秒/秒)"
+            >
+              <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-500 to-teal-400">
+                {stats?.avg_duration 
+                  ? (durationUnit === 'ms' 
+                      ? stats.avg_duration.toFixed(0) + ' ms' 
+                      : (stats.avg_duration / 1000).toFixed(2) + ' s')
+                  : '0 ms'}
+              </div>
+            </div>
             <p className="text-xs text-muted-foreground mt-1">全局平均响应时间</p>
           </CardContent>
         </Card>
