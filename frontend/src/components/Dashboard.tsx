@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
-import { Activity, Clock, AlertTriangle, RefreshCcw, HeartPulse, Coins, Info, ChevronDown, ChevronUp } from 'lucide-react';
+import { Activity, Clock, AlertTriangle, HeartPulse, Coins, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { fetchStats, fetchModelStats, Stats } from '@/lib/api';
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,10 +43,6 @@ export function Dashboard() {
     const interval = setInterval(loadData, 5000); // Poll every 5s
     return () => clearInterval(interval);
   }, [timeRange]); // Reload when range changes
-
-  const handleResetZoom = () => {
-    console.log("Reset zoom");
-  };
 
   if (loading && !stats) return <div className="p-8 text-slate-500 animate-pulse">加载数据中...</div>;
 
@@ -288,28 +284,27 @@ export function Dashboard() {
           </CardContent>
         </Card>
         <Card className="col-span-1 group hover:border-sky-400/50 transition-all duration-300">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="group-hover:text-sky-500 transition-colors">响应时间趋势 (最近50次)</CardTitle>
-            <Button variant="outline" size="sm" onClick={handleResetZoom}>
-               <RefreshCcw className="h-3 w-3 mr-1" /> 重置缩放
-            </Button>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 group-hover:text-sky-500 transition-colors">
+              每日平均延迟
+            </CardTitle>
           </CardHeader>
           <CardContent className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
                 <XAxis 
                   dataKey="time" 
-                  tick={{fontSize: 10}}
+                  tick={{fontSize: 12}}
                   interval="preserveStartEnd"
                 />
                 <YAxis 
                    tickFormatter={(val) => `${val}ms`}
                    domain={[0, 'auto']}
-                   width={40}
-                   tick={{fontSize: 10}}
+                   width={50}
+                   tick={{fontSize: 12}}
                 />
                 <Tooltip 
-                   formatter={(value: any) => [`${value} ms`, "Duration"]}
+                   formatter={(value: any) => [`${value} ms`, "平均延迟"]}
                    labelStyle={{color: '#666'}}
                    contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
                 />
@@ -317,16 +312,9 @@ export function Dashboard() {
                   type="monotone" 
                   dataKey="value" 
                   stroke="#0ea5e9" 
-                  strokeWidth={2} 
-                  dot={(props: any) => {
-                      const { cx, cy, payload } = props;
-                      let fill = "#22c55e"; // Green < 1000
-                      if (payload.value > 3000) fill = "#ef4444"; // Red > 3000
-                      else if (payload.value > 1000) fill = "#eab308"; // Yellow > 1000
-                      
-                      return <circle cx={cx} cy={cy} r={3} stroke="none" fill={fill} key={payload.time} />;
-                  }}
-                  activeDot={{ r: 6, stroke: '#0ea5e9', strokeWidth: 2, fill: '#fff' }}
+                  strokeWidth={3} 
+                  dot={{ r: 5, fill: '#0ea5e9' }}
+                  activeDot={{ r: 7, stroke: '#0ea5e9', strokeWidth: 2, fill: '#fff' }}
                 />
               </LineChart>
             </ResponsiveContainer>
