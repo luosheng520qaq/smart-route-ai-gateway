@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
-import { Activity, Clock, AlertTriangle, RefreshCcw, HeartPulse, Coins, Info } from 'lucide-react';
+import { Activity, Clock, AlertTriangle, RefreshCcw, HeartPulse, Coins, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { fetchStats, fetchModelStats, Stats } from '@/lib/api';
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,13 +9,9 @@ import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger }
 
 const COLORS = ['#0ea5e9', '#22d3ee', '#94a3b8', '#cbd5e1']; // Sky, Cyan, Slate, Light Slate
 
-// Utility to format date for chart
-const formatChartDate = (isoStr: string) => {
-  const date = new Date(isoStr.endsWith('Z') ? isoStr : isoStr + 'Z');
-  return `${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-};
-
-import { ChevronDown, ChevronUp } from 'lucide-react';
+function formatChartDate(dateStr: string): string {
+  return dateStr;
+}
 
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -90,8 +86,8 @@ export function Dashboard() {
                     <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value="today">今日 (24h)</SelectItem>
-                    <SelectItem value="3days">最近三天</SelectItem>
+                    <SelectItem value="today">今日 (自然日)</SelectItem>
+                    <SelectItem value="3days">近三日 (自然日)</SelectItem>
                     <SelectItem value="all">全部历史</SelectItem>
                 </SelectContent>
             </Select>
