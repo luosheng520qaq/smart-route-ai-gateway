@@ -17,7 +17,11 @@ STAGE_MAPPING = {
     "FULL_RESPONSE": "响应完成",
     "MODEL_FAIL": "模型调用失败",
     "ALL_FAILED": "全部尝试失败",
-    "ROUTER_FAIL": "路由决策失败"
+    "ROUTER_FAIL": "路由决策失败",
+    "IMAGE_TRANSCRIBE_START": "开始图片转述",
+    "IMAGE_TRANSCRIBE_DONE": "图片转述完成",
+    "IMAGE_CACHE_START": "开始缓存图片描述",
+    "IMAGE_CACHE_DONE": "缓存图片描述完成"
 }
 
 STATUS_MAPPING = {
