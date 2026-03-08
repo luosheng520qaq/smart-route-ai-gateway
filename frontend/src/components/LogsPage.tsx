@@ -14,7 +14,7 @@ import { CalendarIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { CheckCircle2, XCircle, RefreshCw, FileText, Download, Lock, Info } from 'lucide-react';
-import { fetchLogs, exportLogs, RequestLog, TraceEvent, LogFilters } from '@/lib/api';
+import { fetchLogs, fetchLogDetail, exportLogs, RequestLog, TraceEvent, LogFilters } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 export function LogsPage() {
@@ -25,6 +25,11 @@ export function LogsPage() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [authError, setAuthError] = useState(false);
   const { logout } = useAuth();
+  
+  // 详情加载状态
+  const [openLogId, setOpenLogId] = useState<number | null>(null);
+  const [logDetail, setLogDetail] = useState<RequestLog | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   
   // Filters
   const [filters, setFilters] = useState<LogFilters>({
@@ -122,6 +127,26 @@ export function LogsPage() {
     }
     return () => clearInterval(interval);
   }, [autoRefresh, page, filters, authError]);
+
+  // 加载日志详情
+  useEffect(() => {
+    if (openLogId) {
+      const loadDetail = async () => {
+        setDetailLoading(true);
+        try {
+          const detail = await fetchLogDetail(openLogId);
+          setLogDetail(detail);
+        } catch (error) {
+          console.error("Failed to load log detail", error);
+        } finally {
+          setDetailLoading(false);
+        }
+      };
+      loadDetail();
+    } else {
+      setLogDetail(null);
+    }
+  }, [openLogId]);
 
   const renderMessageContent = (jsonStr: string, isResponse: boolean) => {
       try {
@@ -422,11 +447,16 @@ export function LogsPage() {
             </TableHeader>
             <TableBody>
               {logs.map((log) => (
-                <Sheet key={log.id}>
+                <Sheet key={log.id} open={openLogId === log.id} onOpenChange={(open) => {
+                  if (open) {
+                    setOpenLogId(log.id);
+                  } else {
+                    setOpenLogId(null);
+                  }
+                }}>
                   <SheetTrigger asChild>
                     <TableRow className="cursor-pointer hover:bg-muted/50">
                       <TableCell className="font-mono text-xs text-muted-foreground">
-                        {/* Append 'Z' to indicate UTC time if missing, to ensure local conversion */}
                         {new Date(log.timestamp.endsWith('Z') ? log.timestamp : log.timestamp + 'Z').toLocaleString()}
                       </TableCell>
                       <TableCell>
@@ -464,139 +494,145 @@ export function LogsPage() {
                          {new Date(log.timestamp.endsWith('Z') ? log.timestamp : log.timestamp + 'Z').toLocaleString()}
                       </SheetDescription>
                     </SheetHeader>
-                    <div className="mt-6 space-y-6">
-                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                          <div>
-                              <span className="text-muted-foreground">等级:</span> {log.level}
-                          </div>
-                           <div>
-                              <span className="text-muted-foreground">模型:</span> {log.model}
-                          </div>
-                           <div>
-                              <span className="text-muted-foreground">耗时:</span> {log.duration_ms.toFixed(2)}ms
-                          </div>
-                           <div>
-                              <span className="text-muted-foreground">状态:</span> {log.status}
-                          </div>
-                          {log.retry_count !== undefined && (
-                              <div>
-                                  <span className="text-muted-foreground">重试次数:</span> {log.retry_count}
-                              </div>
-                          )}
-                       </div>
-
-                      {/* Stack Trace for Errors */}
-                      {log.stack_trace && (
-                          <div className="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-md overflow-hidden">
-                              <h4 className="text-sm font-bold text-red-700 mb-2">错误堆栈</h4>
-                              <div className="overflow-x-auto">
-                                <pre className="text-xs text-red-600 font-mono whitespace-pre-wrap break-all sm:break-normal sm:whitespace-pre-wrap">
-                                    {log.stack_trace}
-                                </pre>
-                              </div>
-                          </div>
-                      )}
-
-                      {log.trace && (
-                        <div className="mb-4">
-                          <h4 className="text-sm font-medium mb-2">执行追踪 (Trace)</h4>
-                          {/* Token Usage Display */}
-                          {((log.prompt_tokens ?? 0) > 0 || (log.completion_tokens ?? 0) > 0) && (
-                            <div className="flex gap-4 mb-3 p-3 bg-muted/50 rounded-lg border border-dashed relative">
-                                {log.token_source === 'local' && (
-                                    <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-yellow-100 text-yellow-800 text-[9px] rounded border border-yellow-200 uppercase font-bold tracking-wider">
-                                        Local Calc
-                                    </div>
-                                )}
-                                <div className="flex flex-col">
-                                    <span className="text-[10px] text-muted-foreground uppercase">Prompt Tokens</span>
-                                    <span className="font-mono font-bold text-sky-600">{log.prompt_tokens}</span>
+                    {detailLoading ? (
+                      <div className="flex items-center justify-center h-64">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                      </div>
+                    ) : logDetail ? (
+                      <div className="mt-6 space-y-6">
+                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <span className="text-muted-foreground">等级:</span> {logDetail.level}
+                            </div>
+                             <div>
+                                <span className="text-muted-foreground">模型:</span> {logDetail.model}
+                            </div>
+                             <div>
+                                <span className="text-muted-foreground">耗时:</span> {logDetail.duration_ms.toFixed(2)}ms
+                            </div>
+                             <div>
+                                <span className="text-muted-foreground">状态:</span> {logDetail.status}
+                            </div>
+                            {logDetail.retry_count !== undefined && (
+                                <div>
+                                    <span className="text-muted-foreground">重试次数:</span> {logDetail.retry_count}
                                 </div>
-                                <div className="flex flex-col">
-                                    <span className="text-[10px] text-muted-foreground uppercase">Completion Tokens</span>
-                                    <span className="font-mono font-bold text-emerald-600">{log.completion_tokens}</span>
-                                </div>
-                                <div className="flex flex-col border-l pl-4">
-                                    <span className="text-[10px] text-muted-foreground uppercase">Total</span>
-                                    <span className="font-mono font-bold text-foreground">{(log.prompt_tokens ?? 0) + (log.completion_tokens ?? 0)}</span>
+                            )}
+                         </div>
+
+                        {/* Stack Trace for Errors */}
+                        {logDetail.stack_trace && (
+                            <div className="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-md overflow-hidden">
+                                <h4 className="text-sm font-bold text-red-700 mb-2">错误堆栈</h4>
+                                <div className="overflow-x-auto">
+                                  <pre className="text-xs text-red-600 font-mono whitespace-pre-wrap break-all sm:break-normal sm:whitespace-pre-wrap">
+                                      {logDetail.stack_trace}
+                                  </pre>
                                 </div>
                             </div>
-                          )}
-                          <div className="space-y-3 relative before:absolute before:left-[19px] before:top-2 before:bottom-2 before:w-[2px] before:bg-border">
-                            {(() => {
-                              try {
-                                const trace: TraceEvent[] = JSON.parse(log.trace);
-                                return trace.map((event, i) => (
-                                  <div key={i} className="flex items-start gap-3 text-sm relative">
-                                    {i < trace.length - 1 && (
-                                      <div className="absolute left-[9px] top-6 bottom-[-16px] w-[1px] bg-border" />
-                                    )}
-                                    <div className={`w-5 h-5 min-w-[1.25rem] rounded-full flex items-center justify-center text-[10px] z-10 
-                                      ${event.status === 'success' ? 'bg-green-100 text-green-700' : event.status === 'fail' ? 'bg-red-100 text-red-700' : 'bg-slate-100'}`}>
-                                      {i + 1}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex justify-between items-start sm:items-center flex-col sm:flex-row gap-1 sm:gap-0">
-                                        <div className="flex flex-col min-w-0">
-                                            <span className="font-medium truncate">{TRACE_STAGE_MAP[event.stage] || event.stage}</span>
-                                            {event.model && (
-                                                <span className="text-[10px] text-muted-foreground font-mono truncate">
-                                                    {event.model}
-                                                </span>
-                                            )}
-                                            {event.reason && (
-                                                <div className="ml-2">
-                                                    <Popover>
-                                                        <PopoverTrigger asChild>
-                                                            <Info className="h-3 w-3 text-red-500 cursor-pointer" />
-                                                        </PopoverTrigger>
-                                                        <PopoverContent className="w-[500px] max-w-[90vw] p-3" align="start">
-                                                            <div className="space-y-2">
-                                                                <h4 className="font-medium text-xs text-red-600">错误详情</h4>
-                                                                <div className="text-xs font-mono break-all bg-muted p-2 rounded max-h-[300px] overflow-y-auto whitespace-pre-wrap">
-                                                                    {event.reason}
-                                                                </div>
-                                                            </div>
-                                                        </PopoverContent>
-                                                    </Popover>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
-                                          {["REQ_RECEIVED", "ROUTER_START", "MODEL_CALL_START"].includes(event.stage) ? '' : '+'}
-                                          {event.duration_ms.toFixed(0)}ms
-                                        </span>
+                        )}
+
+                        {logDetail.trace && (
+                          <div className="mb-4">
+                            <h4 className="text-sm font-medium mb-2">执行追踪 (Trace)</h4>
+                            {/* Token Usage Display */}
+                            {((logDetail.prompt_tokens ?? 0) > 0 || (logDetail.completion_tokens ?? 0) > 0) && (
+                              <div className="flex gap-4 mb-3 p-3 bg-muted/50 rounded-lg border border-dashed relative">
+                                  {logDetail.token_source === 'local' && (
+                                      <div className="absolute top-2 right-2 px-1.5 py-0.5 bg-yellow-100 text-yellow-800 text-[9px] rounded border border-yellow-200 uppercase font-bold tracking-wider">
+                                          Local Calc
                                       </div>
-                                      <div className="text-xs text-muted-foreground flex gap-2 mt-1 sm:mt-0">
-                                        <span>{new Date(event.timestamp * 1000).toLocaleTimeString()}</span>
-                                        {event.retry_count > 0 && (
-                                          <span className="text-orange-500 whitespace-nowrap">Retry #{event.retry_count}</span>
-                                        )}
-                                      </div>
-                                    </div>
+                                  )}
+                                  <div className="flex flex-col">
+                                      <span className="text-[10px] text-muted-foreground uppercase">Prompt Tokens</span>
+                                      <span className="font-mono font-bold text-sky-600">{logDetail.prompt_tokens}</span>
                                   </div>
-                                ));
-                              } catch (e) {
-                                return <div className="text-red-500 text-xs">无法解析 Trace 数据</div>;
-                              }
-                            })()}
+                                  <div className="flex flex-col">
+                                      <span className="text-[10px] text-muted-foreground uppercase">Completion Tokens</span>
+                                      <span className="font-mono font-bold text-emerald-600">{logDetail.completion_tokens}</span>
+                                  </div>
+                                  <div className="flex flex-col border-l pl-4">
+                                      <span className="text-[10px] text-muted-foreground uppercase">Total</span>
+                                      <span className="font-mono font-bold text-foreground">{(logDetail.prompt_tokens ?? 0) + (logDetail.completion_tokens ?? 0)}</span>
+                                  </div>
+                              </div>
+                            )}
+                            <div className="space-y-3 relative before:absolute before:left-[19px] before:top-2 before:bottom-2 before:w-[2px] before:bg-border">
+                              {(() => {
+                                try {
+                                  const trace: TraceEvent[] = JSON.parse(logDetail.trace);
+                                  return trace.map((event, i) => (
+                                    <div key={i} className="flex items-start gap-3 text-sm relative">
+                                      {i < trace.length - 1 && (
+                                        <div className="absolute left-[9px] top-6 bottom-[-16px] w-[1px] bg-border" />
+                                      )}
+                                      <div className={`w-5 h-5 min-w-[1.25rem] rounded-full flex items-center justify-center text-[10px] z-10 
+                                        ${event.status === 'success' ? 'bg-green-100 text-green-700' : event.status === 'fail' ? 'bg-red-100 text-red-700' : 'bg-slate-100'}`}>
+                                        {i + 1}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex justify-between items-start sm:items-center flex-col sm:flex-row gap-1 sm:gap-0">
+                                          <div className="flex flex-col min-w-0">
+                                              <span className="font-medium truncate">{TRACE_STAGE_MAP[event.stage] || event.stage}</span>
+                                              {event.model && (
+                                                  <span className="text-[10px] text-muted-foreground font-mono truncate">
+                                                      {event.model}
+                                                  </span>
+                                              )}
+                                              {event.reason && (
+                                                  <div className="ml-2">
+                                                      <Popover>
+                                                          <PopoverTrigger asChild>
+                                                              <Info className="h-3 w-3 text-red-500 cursor-pointer" />
+                                                          </PopoverTrigger>
+                                                          <PopoverContent className="w-[500px] max-w-[90vw] p-3" align="start">
+                                                              <div className="space-y-2">
+                                                                  <h4 className="font-medium text-xs text-red-600">错误详情</h4>
+                                                                  <div className="text-xs font-mono break-all bg-muted p-2 rounded max-h-[300px] overflow-y-auto whitespace-pre-wrap">
+                                                                      {event.reason}
+                                                                  </div>
+                                                              </div>
+                                                          </PopoverContent>
+                                                      </Popover>
+                                                  </div>
+                                              )}
+                                          </div>
+                                          <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
+                                            {["REQ_RECEIVED", "ROUTER_START", "MODEL_CALL_START"].includes(event.stage) ? '' : '+'}
+                                            {event.duration_ms.toFixed(0)}ms
+                                          </span>
+                                        </div>
+                                        <div className="text-xs text-muted-foreground flex gap-2 mt-1 sm:mt-0">
+                                          <span>{new Date(event.timestamp * 1000).toLocaleTimeString()}</span>
+                                          {event.retry_count > 0 && (
+                                            <span className="text-orange-500 whitespace-nowrap">Retry #{event.retry_count}</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ));
+                                } catch (e) {
+                                  return <div className="text-red-500 text-xs">无法解析 Trace 数据</div>;
+                                }
+                              })()}
+                            </div>
+                          </div>
+                        )}
+
+                        <div>
+                          <h4 className="text-sm font-medium mb-2">请求体 (Request JSON)</h4>
+                          <div className="bg-muted p-4 rounded-md overflow-auto max-h-[400px]">
+                            {renderMessageContent(logDetail.full_request, false)}
                           </div>
                         </div>
-                      )}
-
-                      <div>
-                        <h4 className="text-sm font-medium mb-2">请求体 (Request JSON)</h4>
-                        <div className="bg-muted p-4 rounded-md overflow-auto max-h-[400px]">
-                          {renderMessageContent(log.full_request, false)}
+                        <div>
+                          <h4 className="text-sm font-medium mb-2">响应体 (Response JSON)</h4>
+                           <div className="bg-muted p-4 rounded-md overflow-auto max-h-[400px]">
+                            {renderMessageContent(logDetail.full_response, true)}
+                          </div>
                         </div>
                       </div>
-                      <div>
-                        <h4 className="text-sm font-medium mb-2">响应体 (Response JSON)</h4>
-                         <div className="bg-muted p-4 rounded-md overflow-auto max-h-[400px]">
-                          {renderMessageContent(log.full_response, true)}
-                        </div>
-                      </div>
-                    </div>
+                    ) : null}
                   </SheetContent>
                 </Sheet>
               ))}

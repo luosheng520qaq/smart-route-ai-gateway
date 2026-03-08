@@ -413,8 +413,21 @@ async def get_logs(
 ):
     offset = (page - 1) * page_size
     
-    # Build Query
-    stmt = select(RequestLog).order_by(desc(RequestLog.timestamp))
+    # Build Query - 只选择轻量字段，不返回大字段
+    stmt = select(
+        RequestLog.id,
+        RequestLog.timestamp,
+        RequestLog.level,
+        RequestLog.model,
+        RequestLog.duration_ms,
+        RequestLog.status,
+        RequestLog.user_prompt_preview,
+        RequestLog.retry_count,
+        RequestLog.prompt_tokens,
+        RequestLog.completion_tokens,
+        RequestLog.token_source,
+        RequestLog.category
+    ).order_by(desc(RequestLog.timestamp))
     
     conditions = []
     if level:
@@ -456,7 +469,25 @@ async def get_logs(
     # Execute Main Query
     stmt = stmt.offset(offset).limit(page_size)
     result = await db.execute(stmt)
-    logs = result.scalars().all()
+    rows = result.all()
+    
+    # 转换为字典列表
+    logs = []
+    for row in rows:
+        logs.append({
+            "id": row.id,
+            "timestamp": row.timestamp,
+            "level": row.level,
+            "model": row.model,
+            "duration_ms": row.duration_ms,
+            "status": row.status,
+            "user_prompt_preview": row.user_prompt_preview,
+            "retry_count": row.retry_count,
+            "prompt_tokens": row.prompt_tokens,
+            "completion_tokens": row.completion_tokens,
+            "token_source": row.token_source,
+            "category": row.category
+        })
     
     return {
         "total": total,
@@ -464,6 +495,20 @@ async def get_logs(
         "page_size": page_size,
         "logs": logs
     }
+
+@app.get("/api/logs/{log_id}", dependencies=[Depends(get_current_active_user)])
+async def get_log_detail(
+    log_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(RequestLog).where(RequestLog.id == log_id)
+    result = await db.execute(stmt)
+    log = result.scalar_one_or_none()
+    
+    if not log:
+        raise HTTPException(status_code=404, detail="日志不存在")
+    
+    return log
 
 @app.get("/api/logs/export", dependencies=[Depends(get_current_active_user)])
 async def export_logs(

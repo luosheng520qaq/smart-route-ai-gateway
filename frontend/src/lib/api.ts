@@ -228,6 +228,11 @@ export const fetchLogs = async (page = 1, pageSize = 20, filters: LogFilters = {
   return response.data;
 };
 
+export const fetchLogDetail = async (logId: number) => {
+  const response = await api.get<RequestLog>(`/api/logs/${logId}`);
+  return response.data;
+};
+
 export const exportLogs = async (filters: LogFilters = {}) => {
   const params = new URLSearchParams();
   if (filters.level && filters.level !== 'all') params.append('level', filters.level);

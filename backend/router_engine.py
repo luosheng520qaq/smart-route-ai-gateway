@@ -1,4 +1,4 @@
-﻿import httpx
+import httpx
 import json
 import time
 import asyncio
@@ -187,9 +187,13 @@ class RouterEngine:
         for m in all_models:
             if m and m not in self._model_stats:
                 self._model_stats[m] = {
-                    "failures": 0.0, 
+                    "failures": 0, 
                     "success": 0, 
-                    "last_updated": time.time()
+                    "failure_score": 0.0, 
+                    "cooldown_until": 0,
+                    "last_updated": time.time(),
+                    "avg_response_time": 0.0,
+                    "response_time_samples": []
                 }
 
     async def shutdown(self):
@@ -495,12 +499,7 @@ class RouterEngine:
                 
                 new_text = "\n".join(text_parts)
                 for img_url, desc in descriptions:
-                    is_base64 = img_url.startswith("data:image") or img_url.startswith("base64:")
-                    if is_base64:
-                        logger.warning(f"[图片处理] 检测到base64图片，非多模态模型不支持，跳过添加图片URL")
-                        new_text += f"\n\n[图片描述: {desc}]"
-                    else:
-                        new_text += f"\n\n[图片: {img_url}]\n[图片描述: {desc}]"
+                    new_text += f"\n\n[图片描述: {desc}]"
                 logger.info(f"[图片处理_DEBUG] 新文本内容: {new_text[:200]}...")
                 
                 new_msg["content"] = new_text
@@ -716,9 +715,13 @@ class RouterEngine:
                 # 3. 响应速度因子 - 归一化到 [0, 1]
                 avg_response_time = stats.get("avg_response_time", 0.0)
                 if avg_response_time > 0:
-                    speed_factor = 1.0 - min(avg_response_time / max_response_time_threshold, 1.0)
+                    # 简单但有效的线性转换
+                    # 0ms → 1.0, 30000ms → 0.0
+                    normalized_time = min(avg_response_time / max_response_time_threshold, 1.0)
+                    speed_factor = 1.0 - normalized_time
                 else:
-                    speed_factor = 0.5
+                    # 无历史数据：给予较高默认值（0.8），鼓励尝试新模型
+                    speed_factor = 0.8
                 
                 # 4. 用户权重 - 归一化到 [0, 1]
                 user_weight = normalized.get("weight", 0.5)
