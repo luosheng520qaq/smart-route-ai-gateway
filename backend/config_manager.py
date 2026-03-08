@@ -15,6 +15,7 @@ class ModelEntry(BaseModel):
     model: str
     provider: str = "upstream"
     multimodal: bool = True
+    weight: float = 0.5
 
 class ModelsConfig(BaseModel):
     t1: List[ModelEntry] = [

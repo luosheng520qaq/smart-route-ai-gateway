@@ -59,6 +59,7 @@ export interface ModelEntry {
   model: string;
   provider: string;
   multimodal?: boolean;
+  weight?: number;
 }
 
 export interface ModelsConfig {

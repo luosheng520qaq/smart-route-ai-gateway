@@ -75,18 +75,23 @@ class RouterEngine:
         if isinstance(item, dict):
             if "model" in item:
                 # Already in new format
-                return item
+                result = item.copy()
+                if "multimodal" not in result:
+                    result["multimodal"] = True
+                if "weight" not in result:
+                    result["weight"] = 0.5
+                return result
             else:
                 # Old format dict without model field, treat as just model name
                 # This shouldn't happen, but handle it just in case
-                return {"model": str(item), "provider": "upstream", "multimodal": True}
+                return {"model": str(item), "provider": "upstream", "multimodal": True, "weight": 0.5}
         elif isinstance(item, str):
             # Old format string
             if "/" in item:
                 parts = item.split("/", 1)
-                return {"model": parts[1], "provider": parts[0], "multimodal": True}
+                return {"model": parts[1], "provider": parts[0], "multimodal": True, "weight": 0.5}
             else:
-                return {"model": item, "provider": "upstream", "multimodal": True}
+                return {"model": item, "provider": "upstream", "multimodal": True, "weight": 0.5}
         elif hasattr(item, "model") and hasattr(item, "provider"):
             # Pydantic ModelEntry object
             result = {"model": item.model, "provider": item.provider}
@@ -94,10 +99,14 @@ class RouterEngine:
                 result["multimodal"] = item.multimodal
             else:
                 result["multimodal"] = True
+            if hasattr(item, "weight"):
+                result["weight"] = item.weight
+            else:
+                result["weight"] = 0.5
             return result
         else:
             # Fallback
-            return {"model": str(item), "provider": "upstream", "multimodal": True}
+            return {"model": str(item), "provider": "upstream", "multimodal": True, "weight": 0.5}
     
     def _extract_model_id(self, item: Any) -> str:
         """Extract a unique model ID for stats tracking (provider/model or just model)."""
@@ -417,6 +426,34 @@ class RouterEngine:
                 processed_messages.append(msg.copy())
                 continue
 
+            if preserve_original:
+                logger.info(f"[图片处理_DEBUG] preserve_original=True，仅缓存图片描述，不修改请求体")
+                if isinstance(content, list):
+                    image_parts = []
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") in ["image_url", "image"]:
+                            image_parts.append(item)
+                    
+                    for img_item in image_parts:
+                        img_url = None
+                        if "image_url" in img_item:
+                            img_url = img_item["image_url"].get("url", "")
+                        elif "url" in img_item:
+                            img_url = img_item.get("url", "")
+                        
+                        if img_url:
+                            try:
+                                logger.info(f"[图片处理_DEBUG] 调用 _describe_image 缓存描述: {img_url[:100]}")
+                                await self._describe_image(img_url)
+                                logger.info(f"[图片处理_DEBUG] 图片描述缓存成功")
+                            except Exception as e:
+                                logger.error(f"[图片处理] 缓存图片描述失败: {str(e)}")
+                                logger.error(f"[图片处理_DEBUG] 缓存图片描述完整堆栈跟踪:\n{traceback.format_exc()}")
+                
+                processed_messages.append(msg.copy())
+                logger.info(f"[图片处理_DEBUG] preserve_original=True，返回原始消息")
+                continue
+
             new_msg = msg.copy()
             
             if isinstance(content, list):
@@ -458,21 +495,16 @@ class RouterEngine:
                 
                 new_text = "\n".join(text_parts)
                 for img_url, desc in descriptions:
-                    new_text += f"\n\n[图片描述: {desc}]"
+                    is_base64 = img_url.startswith("data:image") or img_url.startswith("base64:")
+                    if is_base64:
+                        logger.warning(f"[图片处理] 检测到base64图片，非多模态模型不支持，跳过添加图片URL")
+                        new_text += f"\n\n[图片描述: {desc}]"
+                    else:
+                        new_text += f"\n\n[图片: {img_url}]\n[图片描述: {desc}]"
                 logger.info(f"[图片处理_DEBUG] 新文本内容: {new_text[:200]}...")
                 
-                if preserve_original:
-                    new_content = [{"type": "text", "text": new_text}]
-                    for img_url, desc in descriptions:
-                        new_content.append({
-                            "type": "image_url", 
-                            "image_url": {"url": img_url}
-                        })
-                    new_msg["content"] = new_content
-                    logger.info(f"[图片处理_DEBUG] preserve_original=True，保留原始图片")
-                else:
-                    new_msg["content"] = new_text
-                    logger.info(f"[图片处理_DEBUG] preserve_original=False，仅保留文本")
+                new_msg["content"] = new_text
+                logger.info(f"[图片处理_DEBUG] preserve_original=False，保留图片URL和描述")
             elif isinstance(content, str):
                 new_msg["content"] = content
                 logger.info(f"[图片处理_DEBUG] content是str类型")
@@ -627,7 +659,8 @@ class RouterEngine:
         for idx, m in enumerate(models):
             normalized = self._normalize_model_entry(m)
             provider_tag = f"[{normalized['provider']}]"
-            logger.info(f"  {idx + 1}. {provider_tag} {normalized['model']}")
+            weight = normalized.get("weight", 0.5)
+            logger.info(f"  {idx + 1}. {provider_tag} {normalized['model']} | 用户权重: {weight:.2f}")
         
         logger.info("-" * 60)
             
@@ -649,9 +682,17 @@ class RouterEngine:
             return shuffled
             
         if strategy == "adaptive":
-            logger.info("🧠 使用自适应策略，计算各模型权重（随机数 + 健康度 + 响应时间）...")
+            logger.info("🧠 使用自适应策略，计算各模型权重（随机数 + 健康度 + 响应时间 + 用户权重）...")
+            logger.info("📊 权重占比: 随机数 0.3 | 健康值 0.1 | 响应速度 0.3 | 用户加权 0.2")
+            
             scored_models = []
             max_response_time_threshold = 30000.0
+            
+            # 权重配置
+            WEIGHT_RANDOM = 0.3
+            WEIGHT_HEALTH = 0.1
+            WEIGHT_SPEED = 0.3
+            WEIGHT_USER = 0.2
             
             for m in models:
                 model_id = self._extract_model_id(m)
@@ -663,20 +704,39 @@ class RouterEngine:
                 health_score = stats.get("health_score", 100)
                 cooldown_active = stats.get("cooldown_until", 0) > time.time()
                 
-                random_factor = (random.random() - 0.5) * 2
+                # 1. 随机因子 - 归一化到 [0, 1]
+                random_factor = random.random()
                 
-                health_factor = (health_score / 100.0 - 0.5) * 2
+                # 2. 健康因子 - 归一化到 [0, 1]
+                health_factor = health_score / 100.0
                 
+                # 3. 响应速度因子 - 归一化到 [0, 1]
                 avg_response_time = stats.get("avg_response_time", 0.0)
                 if avg_response_time > 0:
-                    response_time_factor = (1.0 - min(avg_response_time / max_response_time_threshold, 1.0)) * 2
+                    speed_factor = 1.0 - min(avg_response_time / max_response_time_threshold, 1.0)
                 else:
-                    response_time_factor = 1.0
+                    speed_factor = 0.5
                 
-                score = random_factor + health_factor * 1.5 + response_time_factor * 1.5
+                # 4. 用户权重 - 归一化到 [0, 1]
+                user_weight = normalized.get("weight", 0.5)
+                user_weight = max(0.0, min(1.0, user_weight))
+                
+                # 加权求和
+                score = (
+                    random_factor * WEIGHT_RANDOM +
+                    health_factor * WEIGHT_HEALTH +
+                    speed_factor * WEIGHT_SPEED +
+                    user_weight * WEIGHT_USER
+                )
                 
                 status_icon = "🔴" if cooldown_active else "🟢"
-                logger.info(f"  {status_icon} {provider_tag} {normalized['model']} | 健康度: {health_score}% | 响应时间: {avg_response_time:.0f}ms | 随机: {random_factor:.2f} | 健康因子: {health_factor:.2f} | 速度因子: {response_time_factor:.2f} | 最终得分: {score:.2f}")
+                logger.info(
+                    f"  {status_icon} {provider_tag} {normalized['model']} | "
+                    f"健康度: {health_score}% | 响应时间: {avg_response_time:.0f}ms | "
+                    f"随机: {random_factor:.3f} | 健康: {health_factor:.3f} | "
+                    f"速度: {speed_factor:.3f} | 用户权重: {user_weight:.3f} | "
+                    f"最终得分: {score:.4f}"
+                )
                 scored_models.append((score, m))
             
             scored_models.sort(key=lambda x: x[0], reverse=True)

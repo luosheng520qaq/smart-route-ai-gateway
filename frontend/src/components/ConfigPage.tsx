@@ -322,6 +322,7 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                     let modelName: string;
                                     let providerId: string;
                                     let multimodal: boolean;
+                                    let weight: number;
                                     if (typeof item === 'string') {
                                         if (item.includes('/')) {
                                             const parts = item.split('/');
@@ -332,10 +333,12 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                             modelName = item;
                                         }
                                         multimodal = true;
+                                        weight = 0.5;
                                     } else {
                                         modelName = item.model;
                                         providerId = item.provider;
                                         multimodal = item.multimodal ?? true;
+                                        weight = item.weight ?? 0.5;
                                     }
                                     
                                     const providerOptions = ['upstream', ...Object.keys(config.providers.custom || {})];
@@ -349,7 +352,7 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                                         value={providerId} 
                                                         onValueChange={(val) => {
                                                             const newList = [...config.models[level as 't1'|'t2'|'t3']];
-                                                            newList[idx] = { model: modelName, provider: val, multimodal };
+                                                            newList[idx] = { model: modelName, provider: val, multimodal, weight };
                                                             updateList(level as any, newList);
                                                         }}
                                                     >
@@ -371,7 +374,7 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                                         placeholder="模型名称"
                                                         onChange={(e) => {
                                                             const newList = [...config.models[level as 't1'|'t2'|'t3']];
-                                                            newList[idx] = { model: e.target.value, provider: providerId, multimodal };
+                                                            newList[idx] = { model: e.target.value, provider: providerId, multimodal, weight };
                                                             updateList(level as any, newList);
                                                         }}
                                                     />
@@ -383,11 +386,27 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                                             checked={multimodal}
                                                             onCheckedChange={(c) => {
                                                                 const newList = [...config.models[level as 't1'|'t2'|'t3']];
-                                                                newList[idx] = { model: modelName, provider: providerId, multimodal: c };
+                                                                newList[idx] = { model: modelName, provider: providerId, multimodal: c, weight };
                                                                 updateList(level as any, newList);
                                                             }}
                                                         />
                                                         <span className="text-sm">{multimodal ? '是' : '否'}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col gap-1.5 sm:w-[180px]">
+                                                    <Label className="text-xs text-muted-foreground">权重</Label>
+                                                    <div className="flex items-center gap-2 h-10 px-3 border rounded-md bg-background">
+                                                        <Slider 
+                                                            value={[weight]} 
+                                                            min={0} max={1} step={0.01}
+                                                            onValueChange={(val) => {
+                                                                const newList = [...config.models[level as 't1'|'t2'|'t3']];
+                                                                newList[idx] = { model: modelName, provider: providerId, multimodal, weight: val[0] };
+                                                                updateList(level as any, newList);
+                                                            }}
+                                                            className="flex-1"
+                                                        />
+                                                        <span className="w-10 text-center text-sm">{weight.toFixed(2)}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -422,13 +441,13 @@ function ModelSettings({ config, setConfig }: { config: AppConfig, setConfig: an
                                 })}
                                 <div className="flex gap-2">
                                     <Button variant="outline" size="sm" onClick={() => {
-                                        const newList = [...config.models[level as 't1'|'t2'|'t3'], { model: "", provider: "upstream", multimodal: true }];
+                                        const newList = [...config.models[level as 't1'|'t2'|'t3'], { model: "", provider: "upstream", multimodal: true, weight: 0.5 }];
                                         updateList(level as any, newList);
                                     }}>
                                         <Plus className="h-4 w-4 mr-1"/> 添加模型
                                     </Button>
                                     <BatchAddDialog onAdd={(models) => {
-                                        const newList = [...config.models[level as 't1'|'t2'|'t3'], ...models.map(m => ({ model: m, provider: "upstream", multimodal: true }))];
+                                        const newList = [...config.models[level as 't1'|'t2'|'t3'], ...models.map(m => ({ model: m, provider: "upstream", multimodal: true, weight: 0.5 }))];
                                         updateList(level as any, newList);
                                     }} />
                                 </div>
