@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Save, Plus, Trash2, Brain, HeartPulse, ShieldCheck, Settings, Server, Network, History as HistoryIcon, RotateCcw, Database, Zap } from 'lucide-react';
+import { Save, Plus, Trash2, Brain, HeartPulse, ShieldCheck, Settings, Server, Network, History as HistoryIcon, RotateCcw, Database, Zap, Eye } from 'lucide-react';
 import { AppConfig, fetchConfig, updateConfig, fetchHistory, rollbackConfig, ConfigHistory, api, testModelConnection, ModelTestResult } from '@/lib/api';
 import { Setup2FA } from './AuthPage';
 import { ChangePassword } from './ChangePassword';
@@ -73,6 +73,7 @@ export function ConfigPage() {
             <TabItem value="general" icon={<Settings className="w-4 h-4"/>} label="基础设置" />
             <TabItem value="models" icon={<Server className="w-4 h-4"/>} label="模型管理" />
             <TabItem value="providers" icon={<Database className="w-4 h-4"/>} label="供应商" />
+            <TabItem value="vision" icon={<Eye className="w-4 h-4"/>} label="视觉" />
             <TabItem value="resilience" icon={<HeartPulse className="w-4 h-4"/>} label="稳定性" />
             <TabItem value="router" icon={<Brain className="w-4 h-4"/>} label="意图路由" />
             <TabItem value="params" icon={<Network className="w-4 h-4"/>} label="参数调优" />
@@ -90,6 +91,10 @@ export function ConfigPage() {
 
             <TabsContent value="providers" className="m-0 space-y-6">
                 <ProviderSettings config={config} setConfig={setConfig} />
+            </TabsContent>
+
+            <TabsContent value="vision" className="m-0 space-y-6">
+                <VisionSettings config={config} setConfig={setConfig} />
             </TabsContent>
 
             <TabsContent value="resilience" className="m-0 space-y-6">
@@ -726,11 +731,17 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                     </div>
                 </CardContent>
             </Card>
+        </div>
+    )
+}
 
+function VisionSettings({ config, setConfig }: { config: AppConfig, setConfig: any }) {
+    return (
+        <div className="space-y-6">
             <Card>
                 <CardHeader>
-                    <CardTitle>图片描述模型 (Image Description)</CardTitle>
-                    <CardDescription>配置用于转述图片的模型列表，支持自动失败重试。</CardDescription>
+                    <CardTitle>图片转述模型 (Image Description)</CardTitle>
+                    <CardDescription>配置用于转述图片的模型列表，支持快速调整模型顺序。</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="space-y-2">
@@ -764,93 +775,148 @@ function ProviderSettings({ config, setConfig }: { config: AppConfig, setConfig:
                         <p className="text-xs text-muted-foreground">默认 86400 秒 (24小时)</p>
                     </div>
                     <div className="space-y-2">
-                        {(config.providers.image_description || []).map((item, idx) => {
-                            let modelName: string;
-                            let providerId: string;
-                            if (typeof item === 'string') {
-                                if (item.includes('/')) {
-                                    const parts = item.split('/');
-                                    providerId = parts[0];
-                                    modelName = parts[1];
-                                } else {
-                                    providerId = 'upstream';
-                                    modelName = item;
-                                }
-                            } else {
-                                modelName = item.model;
-                                providerId = item.provider;
-                            }
-                            
-                            const providerOptions = ['upstream', ...Object.keys(config.providers.custom || {})];
-                            
-                            return (
-                                <div key={idx} className="flex flex-col sm:flex-row gap-2 p-3 border rounded-lg bg-muted/30">
-                                    <div className="flex flex-col sm:flex-row gap-2 flex-1">
-                                        <div className="flex flex-col gap-1.5 sm:w-[160px]">
-                                            <Label className="text-xs text-muted-foreground sm:hidden">提供商</Label>
-                                            <Select 
-                                                value={providerId} 
-                                                onValueChange={(val) => {
-                                                    const newList = [...(config.providers.image_description || [])];
-                                                    newList[idx] = { model: modelName, provider: val };
-                                                    setConfig({
-                                                        ...config,
-                                                        providers: {
-                                                            ...config.providers,
-                                                            image_description: newList
-                                                        }
-                                                    });
-                                                }}
-                                            >
-                                                <SelectTrigger className="w-full sm:w-[160px]">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {providerOptions.map(p => (
-                                                        <SelectItem key={p} value={p}>{p}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
+                        <Label>模型列表 (拖拽调整顺序)</Label>
+                        <p className="text-xs text-muted-foreground">模型按顺序尝试，失败后自动切换下一个。</p>
+                        {(config.providers.image_description || []).length === 0 ? (
+                            <div className="text-center py-8 text-muted-foreground border rounded-lg">
+                                暂无图片转述模型，请点击下方添加。
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {(config.providers.image_description || []).map((item, idx) => {
+                                    let modelName: string;
+                                    let providerId: string;
+                                    if (typeof item === 'string') {
+                                        if (item.includes('/')) {
+                                            const parts = item.split('/');
+                                            providerId = parts[0];
+                                            modelName = parts[1];
+                                        } else {
+                                            providerId = 'upstream';
+                                            modelName = item;
+                                        }
+                                    } else {
+                                        modelName = item.model;
+                                        providerId = item.provider;
+                                    }
+                                    
+                                    const providerOptions = ['upstream', ...Object.keys(config.providers.custom || {})];
+                                    const isFirst = idx === 0;
+                                    const isLast = idx === (config.providers.image_description || []).length - 1;
+                                    
+                                    return (
+                                        <div key={idx} className="flex flex-col sm:flex-row gap-2 p-3 border rounded-lg bg-muted/30">
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex flex-col gap-1">
+                                                    <Button 
+                                                        variant="ghost" 
+                                                        size="icon" 
+                                                        className="h-6 w-6"
+                                                        disabled={isFirst}
+                                                        onClick={() => {
+                                                            const newList = [...(config.providers.image_description || [])];
+                                                            [newList[idx - 1], newList[idx]] = [newList[idx], newList[idx - 1]];
+                                                            setConfig({
+                                                                ...config,
+                                                                providers: {
+                                                                    ...config.providers,
+                                                                    image_description: newList
+                                                                }
+                                                            });
+                                                        }}
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={isFirst ? "text-muted" : "text-muted-foreground"}><path d="m18 15-6-6-6 6"/></svg>
+                                                    </Button>
+                                                    <Button 
+                                                        variant="ghost" 
+                                                        size="icon" 
+                                                        className="h-6 w-6"
+                                                        disabled={isLast}
+                                                        onClick={() => {
+                                                            const newList = [...(config.providers.image_description || [])];
+                                                            [newList[idx], newList[idx + 1]] = [newList[idx + 1], newList[idx]];
+                                                            setConfig({
+                                                                ...config,
+                                                                providers: {
+                                                                    ...config.providers,
+                                                                    image_description: newList
+                                                                }
+                                                            });
+                                                        }}
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={isLast ? "text-muted" : "text-muted-foreground"}><path d="m6 9 6 6 6-6"/></svg>
+                                                    </Button>
+                                                </div>
+                                                <span className="text-sm font-mono text-muted-foreground min-w-[24px] text-center">{idx + 1}</span>
+                                            </div>
+                                            <div className="flex flex-col sm:flex-row gap-2 flex-1">
+                                                <div className="flex flex-col gap-1.5 sm:w-[160px]">
+                                                    <Label className="text-xs text-muted-foreground sm:hidden">提供商</Label>
+                                                    <Select 
+                                                        value={providerId} 
+                                                        onValueChange={(val) => {
+                                                            const newList = [...(config.providers.image_description || [])];
+                                                            newList[idx] = { model: modelName, provider: val };
+                                                            setConfig({
+                                                                ...config,
+                                                                providers: {
+                                                                    ...config.providers,
+                                                                    image_description: newList
+                                                                }
+                                                            });
+                                                        }}
+                                                    >
+                                                        <SelectTrigger className="w-full sm:w-[160px]">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {providerOptions.map(p => (
+                                                                <SelectItem key={p} value={p}>{p}</SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className="flex flex-col gap-1.5 flex-1">
+                                                    <Label className="text-xs text-muted-foreground sm:hidden">模型名称</Label>
+                                                    <Input 
+                                                        className="w-full"
+                                                        value={modelName}
+                                                        placeholder="模型名称"
+                                                        onChange={(e) => {
+                                                            const newList = [...(config.providers.image_description || [])];
+                                                            newList[idx] = { model: e.target.value, provider: providerId };
+                                                            setConfig({
+                                                                ...config,
+                                                                providers: {
+                                                                    ...config.providers,
+                                                                    image_description: newList
+                                                                }
+                                                            });
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-1 sm:items-center justify-end">
+                                                <Button variant="outline" size="sm" onClick={() => {
+                                                      const newList = [...(config.providers.image_description || [])];
+                                                      newList.splice(idx, 1);
+                                                      setConfig({
+                                                          ...config,
+                                                          providers: {
+                                                              ...config.providers,
+                                                              image_description: newList
+                                                          }
+                                                      });
+                                                }} className="gap-1">
+                                                    <Trash2 className="h-4 w-4 text-red-500"/>
+                                                    <span className="sm:hidden">删除</span>
+                                                </Button>
+                                            </div>
                                         </div>
-                                        <div className="flex flex-col gap-1.5 flex-1">
-                                            <Label className="text-xs text-muted-foreground sm:hidden">模型名称</Label>
-                                            <Input 
-                                                className="w-full"
-                                                value={modelName}
-                                                placeholder="模型名称"
-                                                onChange={(e) => {
-                                                    const newList = [...(config.providers.image_description || [])];
-                                                    newList[idx] = { model: e.target.value, provider: providerId };
-                                                    setConfig({
-                                                        ...config,
-                                                        providers: {
-                                                            ...config.providers,
-                                                            image_description: newList
-                                                        }
-                                                    });
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-1 sm:items-center justify-end">
-                                        <Button variant="outline" size="sm" onClick={() => {
-                                              const newList = [...(config.providers.image_description || [])];
-                                              newList.splice(idx, 1);
-                                              setConfig({
-                                                  ...config,
-                                                  providers: {
-                                                      ...config.providers,
-                                                      image_description: newList
-                                                  }
-                                              });
-                                        }} className="gap-1">
-                                            <Trash2 className="h-4 w-4 text-red-500"/>
-                                            <span className="sm:hidden">删除</span>
-                                        </Button>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                                    );
+                                })}
+                            </div>
+                        )}
                         <div className="flex gap-2">
                             <Button variant="outline" size="sm" onClick={() => {
                                 const newList = [...(config.providers.image_description || []), { model: "", provider: "upstream" }];
