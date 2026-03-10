@@ -736,7 +736,7 @@ class RouterEngine:
                     
                     if history_size > 0:
                         # 检查是否是最近使用的模型（如果是，加重惩罚）
-                        is_recent = len(self._consecutive_model_history) &gt; 0 and self._consecutive_model_history[-1] == model_id
+                        is_recent = len(self._consecutive_model_history) > 0 and self._consecutive_model_history[-1] == model_id
                         
                         # 基于出现频率和配置权重降低权重 - 使用指数惩罚增强效果
                         frequency = occurrence_count / history_size
@@ -850,7 +850,7 @@ class RouterEngine:
                     
                     if history_size > 0:
                         # 惩罚强度基于出现频率
-                        is_recent = len(self._consecutive_model_history) &gt; 0 and self._consecutive_model_history[-1] == model_id
+                        is_recent = len(self._consecutive_model_history) > 0 and self._consecutive_model_history[-1] == model_id
                         frequency = occurrence_count / history_size
                         penalty_factor = frequency * consecutive_weight * 2.0
                         if is_recent:
