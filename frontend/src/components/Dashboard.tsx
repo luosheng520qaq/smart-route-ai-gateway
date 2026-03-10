@@ -1,17 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
-import { Activity, Clock, AlertTriangle, HeartPulse, Coins, Info, ChevronDown, ChevronUp } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { Activity, AlertTriangle, HeartPulse, Coins, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { fetchStats, fetchModelStats, Stats } from '@/lib/api';
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const COLORS = ['#0ea5e9', '#22d3ee', '#94a3b8', '#cbd5e1']; // Sky, Cyan, Slate, Light Slate
-
-function formatChartDate(dateStr: string): string {
-  return dateStr;
-}
 
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -20,7 +16,6 @@ export function Dashboard() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [timeRange, setTimeRange] = useState<'today' | '3days' | 'all'>('today');
   const [tokenUnit, setTokenUnit] = useState<'k' | 'm'>('k');
-  const [durationUnit, setDurationUnit] = useState<'ms' | 's'>('ms');
 
   const loadData = async () => {
     try {
@@ -45,12 +40,6 @@ export function Dashboard() {
   }, [timeRange]); // Reload when range changes
 
   if (loading && !stats) return <div className="p-8 text-slate-500 animate-pulse">加载数据中...</div>;
-
-  const chartData = stats?.response_trend.map(item => ({
-    ...item,
-    time: formatChartDate(item.time),
-    value: Math.round(item.duration) // Integer ms
-  })) || [];
 
   // Calculate Health/Weight for Model Stats
   const modelHealthData = Object.entries(modelStats || {}).map(([model, data]: [string, any]) => {
@@ -107,28 +96,6 @@ export function Dashboard() {
                 {(stats?.request_change_percentage || 0) > 0 ? '+' : ''}{stats?.request_change_percentage || 0}%
               </span>
             </p>
-          </CardContent>
-        </Card>
-        <Card className="group hover:border-cyan-400/50 transition-all duration-300">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground group-hover:text-cyan-500 transition-colors">平均延迟</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground group-hover:text-cyan-500 transition-colors" />
-          </CardHeader>
-          <CardContent>
-            <div 
-               className="cursor-pointer select-none touch-none active:scale-95 transition-transform"
-               onClick={() => setDurationUnit(durationUnit === 'ms' ? 's' : 'ms')}
-               title="点击切换单位 (毫秒/秒)"
-            >
-              <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-500 to-teal-400">
-                {stats?.avg_duration 
-                  ? (durationUnit === 'ms' 
-                      ? stats.avg_duration.toFixed(0) + ' ms' 
-                      : (stats.avg_duration / 1000).toFixed(2) + ' s')
-                  : '0 ms'}
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">全局平均响应时间</p>
           </CardContent>
         </Card>
         <Card className="group hover:border-rose-400/50 transition-all duration-300">
@@ -286,37 +253,33 @@ export function Dashboard() {
         <Card className="col-span-1 group hover:border-sky-400/50 transition-all duration-300">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 group-hover:text-sky-500 transition-colors">
-              每日平均延迟
+              模型请求量分布
             </CardTitle>
           </CardHeader>
           <CardContent className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <XAxis 
-                  dataKey="time" 
-                  tick={{fontSize: 12}}
-                  interval="preserveStartEnd"
-                />
-                <YAxis 
-                   tickFormatter={(val) => `${val}ms`}
-                   domain={[0, 'auto']}
-                   width={50}
-                   tick={{fontSize: 12}}
-                />
+              <PieChart>
+                <Pie
+                  data={stats?.model_distribution}
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  fill="#8884d8"
+                  paddingAngle={2}
+                  dataKey="count"
+                  nameKey="model"
+                  label={({ name, percent }: { name?: string; percent?: number }) => `${name || ''} (${((percent || 0) * 100).toFixed(0)}%)`}
+                  labelLine={true}
+                >
+                  {stats?.model_distribution.map((_entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
                 <Tooltip 
-                   formatter={(value: any) => [`${value} ms`, "平均延迟"]}
-                   labelStyle={{color: '#666'}}
-                   contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
+                  formatter={(value: any, name?: string) => [value, name === 'count' ? '请求量' : (name || '')]}
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="value" 
-                  stroke="#0ea5e9" 
-                  strokeWidth={3} 
-                  dot={{ r: 5, fill: '#0ea5e9' }}
-                  activeDot={{ r: 7, stroke: '#0ea5e9', strokeWidth: 2, fill: '#fff' }}
-                />
-              </LineChart>
+                <Legend />
+              </PieChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>

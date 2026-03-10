@@ -174,6 +174,7 @@ export interface Stats {
       completion: number;
       total: number;
   };
+  model_distribution: { model: string; count: number }[];
 }
 
 export const fetchStats = async (range: 'today' | '3days' | 'all' = 'today') => {

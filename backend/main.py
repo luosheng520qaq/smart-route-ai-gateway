@@ -28,10 +28,19 @@ daily_stats_task = None
 async def daily_stats_refresh_task():
     while True:
         now = datetime.now()
-        tomorrow = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-        wait_seconds = (tomorrow - now).total_seconds()
+        target_hour = 8
         
-        logger.info(f"[Daily Stats] Next refresh at {tomorrow.strftime('%Y-%m-%d %H:%M:%S')}, waiting {wait_seconds:.0f}s")
+        tomorrow_8am = now.replace(hour=target_hour, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        
+        if now.hour < target_hour:
+            today_8am = now.replace(hour=target_hour, minute=0, second=0, microsecond=0)
+            next_refresh = today_8am
+        else:
+            next_refresh = tomorrow_8am
+        
+        wait_seconds = (next_refresh - now).total_seconds()
+        
+        logger.info(f"[Daily Stats] Next refresh at {next_refresh.strftime('%Y-%m-%d %H:%M:%S')}, waiting {wait_seconds:.0f}s")
         await asyncio.sleep(wait_seconds)
         
         logger.info("[Daily Stats] Refreshing daily statistics...")
@@ -706,6 +715,27 @@ async def get_stats(range: str = Query("today", pattern="^(today|3days|all)$"), 
         avg_dur = row.total_duration_ms / row.total_requests if row.total_requests > 0 else 0
         trend_data.append({"time": row.date, "duration": avg_dur})
     
+    import pytz
+    local_tz = datetime.now().astimezone().tzinfo
+    range_start_local = datetime.strptime(start_date_str, "%Y-%m-%d") if start_date_str else datetime(2000, 1, 1)
+    range_start_utc = range_start_local.replace(tzinfo=local_tz).astimezone(pytz.utc).replace(tzinfo=None)
+    range_end_utc = (datetime.now() + timedelta(days=1)).replace(tzinfo=local_tz).astimezone(pytz.utc).replace(tzinfo=None)
+    
+    q_model_stats = select(
+        RequestLog.model,
+        func.count(RequestLog.id).label('count')
+    ).where(
+        and_(
+            RequestLog.timestamp >= range_start_utc,
+            RequestLog.timestamp < range_end_utc,
+            RequestLog.model != None,
+            RequestLog.model != ''
+        )
+    ).group_by(RequestLog.model).order_by(desc('count'))
+    
+    res_model = await db.execute(q_model_stats)
+    model_distribution = [{"model": row.model, "count": row.count} for row in res_model.all()]
+    
     return {
         "total_requests": total_requests,
         "request_change_percentage": round(change_pct, 1),
@@ -717,7 +747,8 @@ async def get_stats(range: str = Query("today", pattern="^(today|3days|all)$"), 
             "prompt": prompt_tokens,
             "completion": completion_tokens,
             "total": prompt_tokens + completion_tokens
-        }
+        },
+        "model_distribution": model_distribution
     }
 
 # --- Background Maintenance ---

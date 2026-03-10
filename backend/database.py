@@ -86,6 +86,10 @@ def get_local_date_str(dt: datetime = None):
     return dt.strftime("%Y-%m-%d")
 
 def utc_to_local(utc_dt: datetime):
+    if utc_dt is None:
+        return None
+    if utc_dt.tzinfo is None:
+        utc_dt = utc_dt.replace(tzinfo=pytz.utc)
     return utc_dt.astimezone()
 
 async def recalculate_daily_stats(date_str: str = None):
