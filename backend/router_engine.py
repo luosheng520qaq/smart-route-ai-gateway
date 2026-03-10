@@ -471,26 +471,26 @@ class RouterEngine:
             if preserve_original:
                 logger.info(f"[图片处理_DEBUG] preserve_original=True，仅缓存图片描述，不修改请求体")
                 if isinstance(content, list):
-                    image_parts = []
+                    image_urls_to_cache = []
                     for item in content:
                         if isinstance(item, dict) and item.get("type") in ["image_url", "image"]:
-                            image_parts.append(item)
+                            img_url = None
+                            if "image_url" in item:
+                                img_url = item["image_url"].get("url", "")
+                            elif "url" in item:
+                                img_url = item.get("url", "")
+                            if img_url:
+                                image_urls_to_cache.append(img_url)
                     
-                    for img_item in image_parts:
-                        img_url = None
-                        if "image_url" in img_item:
-                            img_url = img_item["image_url"].get("url", "")
-                        elif "url" in img_item:
-                            img_url = img_item.get("url", "")
-                        
-                        if img_url:
-                            try:
-                                logger.info(f"[图片处理_DEBUG] 调用 _describe_image 缓存描述: {img_url[:100]}")
-                                await self._describe_image(img_url)
-                                logger.info(f"[图片处理_DEBUG] 图片描述缓存成功")
-                            except Exception as e:
-                                logger.error(f"[图片处理] 缓存图片描述失败: {str(e)}")
-                                logger.error(f"[图片处理_DEBUG] 缓存图片描述完整堆栈跟踪:\n{traceback.format_exc()}")
+                    if image_urls_to_cache:
+                        logger.info(f"[图片处理_DEBUG] 开始并发缓存 {len(image_urls_to_cache)} 张图片描述")
+                        tasks = [self._describe_image(url) for url in image_urls_to_cache]
+                        try:
+                            await asyncio.gather(*tasks, return_exceptions=True)
+                            logger.info(f"[图片处理_DEBUG] 图片描述缓存完成")
+                        except Exception as e:
+                            logger.error(f"[图片处理] 缓存图片描述失败: {str(e)}")
+                            logger.error(f"[图片处理_DEBUG] 缓存图片描述完整堆栈跟踪:\n{traceback.format_exc()}")
                 
                 processed_messages.append(msg.copy())
                 logger.info(f"[图片处理_DEBUG] preserve_original=True，返回原始消息")
@@ -501,7 +501,7 @@ class RouterEngine:
             if isinstance(content, list):
                 logger.info(f"[图片处理_DEBUG] content是list类型，开始处理")
                 text_parts = []
-                image_parts = []
+                image_urls_to_process = []
                 
                 for item_idx, item in enumerate(content):
                     logger.info(f"[图片处理_DEBUG] 处理第 {item_idx+1} 个content项: {type(item)}")
@@ -510,30 +510,30 @@ class RouterEngine:
                             text_parts.append(item.get("text", ""))
                             logger.info(f"[图片处理_DEBUG] 文本项已添加")
                         elif item.get("type") in ["image_url", "image"]:
-                            image_parts.append(item)
-                            logger.info(f"[图片处理_DEBUG] 图片项已添加")
+                            img_url = None
+                            if "image_url" in item:
+                                img_url = item["image_url"].get("url", "")
+                            elif "url" in item:
+                                img_url = item.get("url", "")
+                            if img_url:
+                                image_urls_to_process.append(img_url)
+                                logger.info(f"[图片处理_DEBUG] 图片URL已添加")
                 
-                logger.info(f"[图片处理_DEBUG] 文本部分: {text_parts}, 图片部分数量: {len(image_parts)}")
+                logger.info(f"[图片处理_DEBUG] 文本部分: {text_parts}, 图片部分数量: {len(image_urls_to_process)}")
                 
                 descriptions = []
-                for img_idx, img_item in enumerate(image_parts):
-                    logger.info(f"[图片处理_DEBUG] 描述第 {img_idx+1} 张图片")
-                    img_url = None
-                    if "image_url" in img_item:
-                        img_url = img_item["image_url"].get("url", "")
-                    elif "url" in img_item:
-                        img_url = img_item.get("url", "")
+                if image_urls_to_process:
+                    logger.info(f"[图片处理_DEBUG] 开始并发描述 {len(image_urls_to_process)} 张图片")
+                    tasks = [self._describe_image(url) for url in image_urls_to_process]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
                     
-                    if img_url:
-                        try:
-                            logger.info(f"[图片处理_DEBUG] 调用 _describe_image 处理URL: {img_url[:100]}")
-                            desc = await self._describe_image(img_url)
-                            descriptions.append((img_url, desc))
-                            logger.info(f"[图片处理_DEBUG] 图片描述成功")
-                        except Exception as e:
-                            logger.error(f"[图片处理] 描述图片失败: {str(e)}")
-                            logger.error(f"[图片处理_DEBUG] 描述图片完整堆栈跟踪:\n{traceback.format_exc()}")
-                            descriptions.append((img_url, f"[图片: {img_url}]"))
+                    for url, result in zip(image_urls_to_process, results):
+                        if isinstance(result, Exception):
+                            logger.error(f"[图片处理] 描述图片失败: {str(result)}")
+                            descriptions.append((url, f"[图片: {url}]"))
+                        else:
+                            descriptions.append((url, result))
+                    logger.info(f"[图片处理_DEBUG] 图片描述完成")
                 
                 new_text = "\n".join(text_parts)
                 for img_url, desc in descriptions:
